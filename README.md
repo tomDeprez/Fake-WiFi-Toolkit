@@ -1,5 +1,3 @@
-
-```markdown
 # 🕵️‍♂️ Fake WiFi Toolkit - The Dark Side of Connectivity
 
 ![Hacker](https://img.shields.io/badge/Theme-Cyber_Security-red) ![License](https://img.shields.io/badge/License-Educational_Use_only-blue) ![Platform](https://img.shields.io/badge/Platform-Linux-black)
@@ -72,7 +70,6 @@ Avant de plonger dans l'ombre, assurez-vous que les outils nécessaires sont ins
 sudo apt update && sudo apt install -y hostapd dnsmasq iw wireless-tools aircrack-ng tcpdump macchanger
 ```
 
----
 
 ## 🚀 Utilisation
 
