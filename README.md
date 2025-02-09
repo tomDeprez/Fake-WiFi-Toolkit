@@ -130,4 +130,3 @@ L'utilisation de ces scripts sur un réseau sans autorisation explicite est **st
 ---
 
 🛡️ **Rappelez-vous :** Avec de grands pouvoirs viennent de grandes responsabilités. Utilisez ce toolkit à bon escient. 🛡️
-```
