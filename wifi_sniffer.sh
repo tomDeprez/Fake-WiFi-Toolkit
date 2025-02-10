@@ -1,5 +1,55 @@
 #!/bin/bash
 
+# Configuration du logging
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LOG_DIR="$SCRIPT_DIR/logs"
+LOG_FILE="$LOG_DIR/wifi_sniffer.log"
+
+# Création du dossier logs s'il n'existe pas
+mkdir -p "$LOG_DIR"
+
+# Fonction de logging
+log() {
+    local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
+    local message="[$timestamp] $1"
+    echo "$message" | tee -a "$LOG_FILE"
+}
+
+# Nettoyage du fichier de log au démarrage
+echo "" > "$LOG_FILE"
+
+# Redirection de stderr vers le fichier de log
+exec 2>> "$LOG_FILE"
+
+# Lecture de la configuration
+CONFIG_FILE="config.json"
+if [ ! -f "$CONFIG_FILE" ]; then
+    echo "[❌] Fichier de configuration non trouvé !"
+    exit 1
+fi
+
+# Extraction de l'interface depuis la configuration
+INTERFACE=$(jq -r '.wifi_interface' "$CONFIG_FILE")
+MONITOR_SUPPORTED=$(jq -r '.monitor_supported' "$CONFIG_FILE")
+
+if [[ -z "$INTERFACE" ]]; then
+    echo "[❌] Interface non configurée !"
+    exit 1
+fi
+
+log "[✅] Interface configurée : $INTERFACE"
+
+# Vérification du support du mode monitor
+if [[ "$MONITOR_SUPPORTED" != "true" ]]; then
+    log "[⚠️] Attention : Cette interface ne supporte pas le mode monitor."
+    echo "     Certaines fonctionnalités pourraient ne pas fonctionner correctement."
+    read -p "Voulez-vous continuer quand même ? (o/N) " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Oo]$ ]]; then
+        exit 1
+    fi
+fi
+
 # Vérifie si aircrack-ng est installé
 if ! command -v airmon-ng &> /dev/null; then
     echo "[❌] aircrack-ng n'est pas installé ! Installe-le avec : sudo apt install aircrack-ng"
@@ -97,4 +147,6 @@ sudo tcpdump -l -i "$MONITOR_INTERFACE" -n -s 0 -A port 80 | tee capture.log | g
 if [ ! -s interesting.log ]; then
     echo "[INFO] La capture sur le port 80 a bien eu lieu, mais aucun paquet ne correspond au filtre 'username=' ou 'password='."
 fi
+
+log "[✅] Démarrage du sniffer Wi-Fi..."
 

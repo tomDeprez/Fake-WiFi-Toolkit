@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Configuration Wi-Fi Manager</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        .interface-card {
+            transition: all 0.3s ease;
+        }
+        .interface-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 20px rgba(0,0,0,0.2);
+        }
+        .scan-animation {
+            animation: scan 2s infinite linear;
+        }
+        @keyframes scan {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .fade-in {
+            animation: fadeIn 0.5s ease-in;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-white min-h-screen">
+    <div class="container mx-auto px-4 py-8">
+        <div class="max-w-2xl mx-auto">
+            <h1 class="text-4xl font-bold mb-8 text-center">
+                <i class="fas fa-wifi mr-2"></i>Configuration Wi-Fi Manager
+            </h1>
+
+            <div class="bg-gray-800 rounded-lg p-6 mb-8 fade-in">
+                <h2 class="text-2xl font-bold mb-4">
+                    <i class="fas fa-network-wired mr-2"></i>Sélectionnez votre interface Wi-Fi
+                </h2>
+                <div class="space-y-4" id="interfaces-container">
+                    {% for interface in interfaces %}
+                    <div class="interface-card bg-gray-700 rounded-lg p-4 cursor-pointer hover:bg-gray-600"
+                         onclick="selectInterface('{{ interface.name }}')">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <h3 class="text-xl font-semibold">{{ interface.name }}</h3>
+                                <p class="text-gray-400">{{ interface.info }}</p>
+                            </div>
+                            <div class="flex items-center">
+                                <div id="status-{{ interface.name }}" class="hidden">
+                                    <i class="fas fa-circle-notch fa-spin text-blue-500 mr-2"></i>
+                                </div>
+                                <i class="fas fa-chevron-right text-gray-500"></i>
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <div id="scan-results" class="bg-gray-800 rounded-lg p-6 hidden fade-in">
+                <h2 class="text-2xl font-bold mb-4">
+                    <i class="fas fa-search mr-2"></i>Résultats du scan
+                </h2>
+                <div id="scan-content" class="space-y-4">
+                    <div class="flex items-center justify-center">
+                        <i class="fas fa-circle-notch fa-2x scan-animation text-blue-500"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        async function selectInterface(interfaceName) {
+            // Affiche l'animation de chargement
+            document.querySelector(`#status-${interfaceName}`).classList.remove('hidden');
+            
+            // Affiche la section des résultats
+            document.getElementById('scan-results').classList.remove('hidden');
+            
+            try {
+                // Vérifie les capacités de l'interface
+                const response = await fetch(`/api/check_interface/${interfaceName}`, {
+                    method: 'POST'
+                });
+                const data = await response.json();
+                
+                // Mise à jour de l'interface utilisateur
+                const scanContent = document.getElementById('scan-content');
+                
+                if (data.supported) {
+                    scanContent.innerHTML = `
+                        <div class="bg-green-800 rounded-lg p-4">
+                            <div class="flex items-center">
+                                <i class="fas fa-check-circle text-green-400 text-2xl mr-3"></i>
+                                <div>
+                                    <h3 class="font-bold">Interface compatible !</h3>
+                                    <p class="text-gray-300">Mode actuel : ${data.current_mode}</p>
+                                </div>
+                            </div>
+                        </div>
+                        <button onclick="saveConfig('${interfaceName}', true)" 
+                                class="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 px-4 rounded-lg mt-4">
+                            <i class="fas fa-save mr-2"></i>Sauvegarder la configuration
+                        </button>
+                    `;
+                } else {
+                    scanContent.innerHTML = `
+                        <div class="bg-red-800 rounded-lg p-4">
+                            <div class="flex items-center">
+                                <i class="fas fa-exclamation-circle text-red-400 text-2xl mr-3"></i>
+                                <div>
+                                    <h3 class="font-bold">Interface non compatible</h3>
+                                    <p class="text-gray-300">Cette interface ne supporte pas le mode monitor.</p>
+                                    <p class="text-gray-400 text-sm mt-2">⚠️ Certaines fonctionnalités pourraient ne pas fonctionner correctement.</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="flex space-x-4 mt-4">
+                            <button onclick="saveConfig('${interfaceName}', false)" 
+                                    class="flex-1 bg-yellow-600 hover:bg-yellow-700 text-white py-3 px-4 rounded-lg">
+                                <i class="fas fa-exclamation-triangle mr-2"></i>Continuer quand même
+                            </button>
+                            <button onclick="document.getElementById('scan-results').classList.add('hidden')" 
+                                    class="flex-1 bg-gray-600 hover:bg-gray-700 text-white py-3 px-4 rounded-lg">
+                                <i class="fas fa-times mr-2"></i>Choisir une autre interface
+                            </button>
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                console.error('Erreur:', error);
+                const scanContent = document.getElementById('scan-content');
+                scanContent.innerHTML = `
+                    <div class="bg-red-800 rounded-lg p-4">
+                        <div class="flex items-center">
+                            <i class="fas fa-times-circle text-red-400 text-2xl mr-3"></i>
+                            <div>
+                                <h3 class="font-bold">Erreur lors de la vérification</h3>
+                                <p class="text-gray-300">Impossible de vérifier les capacités de l'interface.</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="flex space-x-4 mt-4">
+                        <button onclick="saveConfig('${interfaceName}', false)" 
+                                class="flex-1 bg-yellow-600 hover:bg-yellow-700 text-white py-3 px-4 rounded-lg">
+                            <i class="fas fa-exclamation-triangle mr-2"></i>Continuer quand même
+                        </button>
+                        <button onclick="document.getElementById('scan-results').classList.add('hidden')" 
+                                class="flex-1 bg-gray-600 hover:bg-gray-700 text-white py-3 px-4 rounded-lg">
+                            <i class="fas fa-times mr-2"></i>Choisir une autre interface
+                        </button>
+                    </div>
+                `;
+            } finally {
+                document.querySelector(`#status-${interfaceName}`).classList.add('hidden');
+            }
+        }
+
+        async function saveConfig(interface, monitorSupported) {
+            try {
+                const response = await fetch('/api/save_config', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        interface: interface,
+                        monitor_supported: monitorSupported
+                    })
+                });
+                
+                if (response.ok) {
+                    window.location.href = '/';
+                }
+            } catch (error) {
+                console.error('Erreur:', error);
+            }
+        }
+    </script>
+</body>
+</html> 

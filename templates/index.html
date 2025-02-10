@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Wi-Fi Manager</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        .card {
+            transition: all 0.3s ease;
+        }
+        .card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 20px rgba(0,0,0,0.2);
+        }
+        .status-dot {
+            transition: all 0.3s ease;
+        }
+        .status-dot.running {
+            background-color: #10B981;
+            box-shadow: 0 0 10px #10B981;
+        }
+        .status-dot.stopped {
+            background-color: #EF4444;
+        }
+        .btn {
+            transition: all 0.2s ease;
+        }
+        .btn:active {
+            transform: scale(0.95);
+        }
+        .logs-container {
+            max-height: 300px;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-white min-h-screen">
+    <div class="container mx-auto px-4 py-8">
+        <div class="flex justify-between items-center mb-8">
+            <h1 class="text-4xl font-bold">
+                <i class="fas fa-wifi mr-2"></i>Wi-Fi Manager
+            </h1>
+            <button onclick="window.location.href='/setup'" 
+                    class="bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded-lg flex items-center">
+                <i class="fas fa-cog mr-2"></i>Configuration
+            </button>
+        </div>
+
+        <!-- Affichage de l'interface active -->
+        <div class="bg-gray-800 rounded-lg p-4 mb-6">
+            <div class="flex items-center justify-between">
+                <div>
+                    <h2 class="text-xl font-semibold">Interface Wi-Fi Active</h2>
+                    <p class="text-gray-400" id="active-interface">Chargement...</p>
+                </div>
+                <span id="monitor-support" class="px-3 py-1 rounded-full text-sm"></span>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {% for script_id, script in scripts.items() %}
+            <div class="card bg-gray-800 rounded-lg p-6">
+                <div class="flex items-center justify-between mb-4">
+                    <div class="flex items-center">
+                        <i class="fas fa-{{ script.icon }} text-2xl text-blue-500 mr-3"></i>
+                        <h2 class="text-xl font-semibold">{{ script.name }}</h2>
+                    </div>
+                    <div class="status-dot w-3 h-3 rounded-full" 
+                         data-script="{{ script_id }}"></div>
+                </div>
+                <p class="text-gray-400 mb-4">{{ script.description }}</p>
+                <div class="flex space-x-3">
+                    <button onclick="startScript('{{ script_id }}')"
+                            class="btn flex-1 bg-green-600 hover:bg-green-700 text-white py-2 px-4 rounded">
+                        <i class="fas fa-play mr-2"></i>Start
+                    </button>
+                    <button onclick="stopScript('{{ script_id }}')"
+                            class="btn flex-1 bg-red-600 hover:bg-red-700 text-white py-2 px-4 rounded">
+                        <i class="fas fa-stop mr-2"></i>Stop
+                    </button>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+
+        <div class="mt-8 bg-gray-800 rounded-lg p-6">
+            <h2 class="text-2xl font-bold mb-4">
+                <i class="fas fa-clipboard-list mr-2"></i>Logs
+            </h2>
+            <div class="logs-container bg-gray-900 rounded p-4" id="logs">
+                <div class="animate-pulse text-gray-500">Chargement des logs...</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        async function loadConfig() {
+            try {
+                const response = await fetch('/api/config');
+                const config = await response.json();
+                const interfaceElement = document.getElementById('active-interface');
+                const monitorElement = document.getElementById('monitor-support');
+                
+                interfaceElement.textContent = config.wifi_interface;
+                
+                if (config.monitor_supported) {
+                    monitorElement.textContent = "Mode Monitor Supporté";
+                    monitorElement.classList.add('bg-green-600');
+                } else {
+                    monitorElement.textContent = "Mode Monitor Non Supporté";
+                    monitorElement.classList.add('bg-yellow-600');
+                }
+            } catch (error) {
+                console.error('Erreur:', error);
+            }
+        }
+
+        loadConfig();
+
+        function updateStatus(scriptId, status) {
+            const dot = document.querySelector(`.status-dot[data-script="${scriptId}"]`);
+            dot.classList.remove('running', 'stopped');
+            dot.classList.add(status);
+        }
+
+        async function startScript(scriptId) {
+            try {
+                const response = await fetch(`/api/start/${scriptId}`, {
+                    method: 'POST'
+                });
+                const data = await response.json();
+                if (data.status === 'success') {
+                    updateStatus(scriptId, 'running');
+                }
+            } catch (error) {
+                console.error('Erreur:', error);
+            }
+        }
+
+        async function stopScript(scriptId) {
+            try {
+                const response = await fetch(`/api/stop/${scriptId}`, {
+                    method: 'POST'
+                });
+                const data = await response.json();
+                if (data.status === 'success') {
+                    updateStatus(scriptId, 'stopped');
+                }
+            } catch (error) {
+                console.error('Erreur:', error);
+            }
+        }
+
+        async function updateLogs() {
+            try {
+                const response = await fetch('/api/logs');
+                const data = await response.json();
+                const logsContainer = document.getElementById('logs');
+                
+                if (data.logs.length === 0) {
+                    logsContainer.innerHTML = '<div class="text-gray-500">Aucun log disponible</div>';
+                    return;
+                }
+
+                logsContainer.innerHTML = data.logs.map(logGroup => `
+                    <div class="mb-6">
+                        <div class="flex items-center mb-2">
+                            <h3 class="text-lg font-semibold text-blue-400">
+                                <i class="fas fa-${getIconForScript(logGroup.script)} mr-2"></i>
+                                ${logGroup.script}
+                            </h3>
+                            <span class="ml-2 px-2 py-1 bg-gray-700 rounded-full text-xs">
+                                ${logGroup.type}
+                            </span>
+                        </div>
+                        <div class="bg-gray-800 rounded p-3 font-mono text-sm">
+                            ${logGroup.content.map(line => `
+                                <div class="text-gray-300 hover:text-white">
+                                    ${formatLogLine(line)}
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                `).join('');
+            } catch (error) {
+                console.error('Erreur:', error);
+            }
+        }
+
+        function getIconForScript(scriptName) {
+            const iconMap = {
+                'fake_wifi': 'wifi',
+                'wifi_sniffer': 'radar',
+                'wifi_sniffer_all': 'search',
+                'wifi_sniffer_cookie': 'cookie',
+                'Captures': 'key',
+                'default': 'terminal'
+            };
+            return iconMap[scriptName] || iconMap.default;
+        }
+
+        function formatLogLine(line) {
+            // Colorer les différents types de messages
+            if (line.includes('[✅]')) return `<span class="text-green-400">${line}</span>`;
+            if (line.includes('[❌]')) return `<span class="text-red-400">${line}</span>`;
+            if (line.includes('[⚠️]')) return `<span class="text-yellow-400">${line}</span>`;
+            if (line.includes('[ℹ️]')) return `<span class="text-blue-400">${line}</span>`;
+            return line;
+        }
+
+        // Mise à jour des logs toutes les 2 secondes
+        setInterval(updateLogs, 2000);
+        updateLogs();
+    </script>
+</body>
+</html> 
