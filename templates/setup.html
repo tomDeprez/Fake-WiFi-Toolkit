@@ -4,165 +4,361 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Configuration Wi-Fi Manager</title>
-    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <style>
-        .interface-card {
-            transition: all 0.3s ease;
+        :root {
+            --bg-primary: #0a0a0a;
+            --bg-secondary: #1a1a1a;
+            --text-primary: #ffffff;
+            --text-secondary: #888888;
+            --accent-color: #00ff00;
+            --error-color: #ff3333;
+            --warning-color: #ffcc00;
+            --success-color: #00ff00;
         }
+
+        body {
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+            font-family: 'JetBrains Mono', monospace;
+            margin: 0;
+            padding: 0;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 3rem;
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 1rem;
+        }
+
+        .header p {
+            color: var(--text-secondary);
+            font-size: 1.1rem;
+        }
+
+        .setup-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 2rem;
+            margin-bottom: 3rem;
+        }
+
+        .interface-card {
+            background-color: var(--bg-secondary);
+            border-radius: 10px;
+            padding: 1.5rem;
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+            cursor: pointer;
+            position: relative;
+            overflow: hidden;
+        }
+
         .interface-card:hover {
             transform: translateY(-5px);
-            box-shadow: 0 10px 20px rgba(0,0,0,0.2);
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.2);
         }
-        .scan-animation {
-            animation: scan 2s infinite linear;
+
+        .interface-card.selected {
+            border: 2px solid var(--accent-color);
         }
-        @keyframes scan {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
+
+        .interface-card .status-badge {
+            position: absolute;
+            top: 1rem;
+            right: 1rem;
+            padding: 0.5rem 1rem;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: bold;
         }
-        .fade-in {
-            animation: fadeIn 0.5s ease-in;
+
+        .status-badge.wifi {
+            background-color: rgba(0, 255, 0, 0.2);
+            color: var(--accent-color);
         }
+
+        .status-badge.ethernet {
+            background-color: rgba(255, 204, 0, 0.2);
+            color: var(--warning-color);
+        }
+
+        .interface-info {
+            margin-top: 1rem;
+        }
+
+        .interface-info p {
+            margin: 0.5rem 0;
+            color: var(--text-secondary);
+        }
+
+        .interface-info i {
+            width: 20px;
+            margin-right: 0.5rem;
+            color: var(--accent-color);
+        }
+
+        .scan-results {
+            background-color: var(--bg-secondary);
+            border-radius: 10px;
+            padding: 1.5rem;
+            margin-top: 2rem;
+            display: none;
+        }
+
+        .scan-results.visible {
+            display: block;
+            animation: fadeIn 0.5s ease;
+        }
+
+        .loading-spinner {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 2rem;
+        }
+
+        .loading-spinner i {
+            font-size: 2rem;
+            color: var(--accent-color);
+            animation: spin 1s linear infinite;
+        }
+
+        .result-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1rem;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .result-item:last-child {
+            border-bottom: none;
+        }
+
+        .action-buttons {
+            display: flex;
+            gap: 1rem;
+            margin-top: 2rem;
+        }
+
+        .btn {
+            padding: 1rem 2rem;
+            border: none;
+            border-radius: 5px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: background-color 0.3s ease;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .btn-primary {
+            background-color: var(--accent-color);
+            color: var(--bg-primary);
+        }
+
+        .btn-primary:hover {
+            background-color: #00cc00;
+        }
+
+        .btn-secondary {
+            background-color: var(--bg-secondary);
+            color: var(--text-primary);
+            border: 1px solid var(--text-secondary);
+        }
+
+        .btn-secondary:hover {
+            background-color: #2d2d2d;
+        }
+
+        .terminal {
+            background-color: var(--bg-primary);
+            border-radius: 5px;
+            padding: 1rem;
+            margin-top: 1rem;
+            font-family: 'JetBrains Mono', monospace;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+
+        .terminal p {
+            margin: 0.25rem 0;
+            color: var(--text-secondary);
+        }
+
+        .terminal .success { color: var(--success-color); }
+        .terminal .error { color: var(--error-color); }
+        .terminal .warning { color: var(--warning-color); }
+
         @keyframes fadeIn {
             from { opacity: 0; transform: translateY(20px); }
             to { opacity: 1; transform: translateY(0); }
         }
+
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+
+        /* Toast Notifications */
+        .toast-container {
+            position: fixed;
+            top: 1rem;
+            right: 1rem;
+            z-index: 1000;
+        }
+
+        .toast {
+            background-color: var(--bg-secondary);
+            color: var(--text-primary);
+            padding: 1rem;
+            border-radius: 5px;
+            margin-bottom: 0.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            animation: slideIn 0.3s ease;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+        }
+
+        @keyframes slideIn {
+            from { transform: translateX(100%); }
+            to { transform: translateX(0); }
+        }
     </style>
 </head>
-<body class="bg-gray-900 text-white min-h-screen">
-    <div class="container mx-auto px-4 py-8">
-        <div class="max-w-2xl mx-auto">
-            <h1 class="text-4xl font-bold mb-8 text-center">
-                <i class="fas fa-wifi mr-2"></i>Configuration Wi-Fi Manager
-            </h1>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1><i class="fas fa-wifi"></i> Configuration Wi-Fi Manager</h1>
+            <p>Sélectionnez votre interface Wi-Fi pour commencer</p>
+        </div>
 
-            <div class="bg-gray-800 rounded-lg p-6 mb-8 fade-in">
-                <h2 class="text-2xl font-bold mb-4">
-                    <i class="fas fa-network-wired mr-2"></i>Sélectionnez votre interface Wi-Fi
-                </h2>
-                <div class="space-y-4" id="interfaces-container">
-                    {% for interface in interfaces %}
-                    <div class="interface-card bg-gray-700 rounded-lg p-4 cursor-pointer hover:bg-gray-600"
-                         onclick="selectInterface('{{ interface.name }}')">
-                        <div class="flex items-center justify-between">
-                            <div>
-                                <h3 class="text-xl font-semibold">{{ interface.name }}</h3>
-                                <p class="text-gray-400">{{ interface.info }}</p>
-                            </div>
-                            <div class="flex items-center">
-                                <div id="status-{{ interface.name }}" class="hidden">
-                                    <i class="fas fa-circle-notch fa-spin text-blue-500 mr-2"></i>
-                                </div>
-                                <i class="fas fa-chevron-right text-gray-500"></i>
-                            </div>
-                        </div>
-                    </div>
-                    {% endfor %}
+        <div class="setup-grid">
+            {% for interface in interfaces %}
+            <div class="interface-card" onclick="selectInterface('{{ interface.name }}')">
+                <div class="status-badge {% if interface.is_wifi %}wifi{% else %}ethernet{% endif %}">
+                    {% if interface.is_wifi %}Wi-Fi{% else %}Ethernet{% endif %}
                 </div>
+                <h3>{{ interface.name }}</h3>
+                <div class="interface-info">
+                    <p><i class="fas fa-fingerprint"></i> {{ interface.mac }}</p>
+                    <p><i class="fas fa-network-wired"></i> {{ interface.ip }}</p>
+                </div>
+                <div id="status-{{ interface.name }}" class="terminal" style="display: none;"></div>
             </div>
+            {% endfor %}
+        </div>
 
-            <div id="scan-results" class="bg-gray-800 rounded-lg p-6 hidden fade-in">
-                <h2 class="text-2xl font-bold mb-4">
-                    <i class="fas fa-search mr-2"></i>Résultats du scan
-                </h2>
-                <div id="scan-content" class="space-y-4">
-                    <div class="flex items-center justify-center">
-                        <i class="fas fa-circle-notch fa-2x scan-animation text-blue-500"></i>
-                    </div>
+        <div id="scan-results" class="scan-results">
+            <h2><i class="fas fa-search"></i> Analyse de l'interface</h2>
+            <div id="scan-content">
+                <div class="loading-spinner">
+                    <i class="fas fa-circle-notch"></i>
                 </div>
             </div>
         </div>
+
+        <div class="action-buttons">
+            <button id="back-button" class="btn btn-secondary" style="display: none;" onclick="window.location.href='/'">
+                <i class="fas fa-arrow-left"></i> Retour
+            </button>
+            <button id="save-button" class="btn btn-primary" style="display: none;" onclick="saveConfig()">
+                <i class="fas fa-save"></i> Sauvegarder la configuration
+            </button>
+        </div>
     </div>
 
+    <div class="toast-container" id="toast-container"></div>
+
     <script>
+        let selectedInterface = null;
+
+        function showToast(message, type = 'info') {
+            const toast = document.createElement('div');
+            toast.className = `toast ${type}`;
+            toast.innerHTML = `
+                <i class="fas fa-${type === 'error' ? 'times-circle' : 'info-circle'}"></i>
+                ${message}
+            `;
+            document.getElementById('toast-container').appendChild(toast);
+            setTimeout(() => toast.remove(), 3000);
+        }
+
         async function selectInterface(interfaceName) {
-            // Affiche l'animation de chargement
-            document.querySelector(`#status-${interfaceName}`).classList.remove('hidden');
+            selectedInterface = interfaceName;
             
-            // Affiche la section des résultats
-            document.getElementById('scan-results').classList.remove('hidden');
+            // Mise à jour visuelle
+            document.querySelectorAll('.interface-card').forEach(card => {
+                card.classList.remove('selected');
+            });
+            document.querySelector(`.interface-card:has(h3:contains('${interfaceName}'))`).classList.add('selected');
+            
+            // Afficher la section des résultats
+            document.getElementById('scan-results').classList.add('visible');
+            document.getElementById('back-button').style.display = 'block';
             
             try {
-                // Vérifie les capacités de l'interface
                 const response = await fetch(`/api/check_interface/${interfaceName}`, {
                     method: 'POST'
                 });
                 const data = await response.json();
                 
-                // Mise à jour de l'interface utilisateur
                 const scanContent = document.getElementById('scan-content');
                 
                 if (data.supported) {
                     scanContent.innerHTML = `
-                        <div class="bg-green-800 rounded-lg p-4">
-                            <div class="flex items-center">
-                                <i class="fas fa-check-circle text-green-400 text-2xl mr-3"></i>
-                                <div>
-                                    <h3 class="font-bold">Interface compatible !</h3>
-                                    <p class="text-gray-300">Mode actuel : ${data.current_mode}</p>
-                                </div>
+                        <div class="result-item">
+                            <div>
+                                <i class="fas fa-check-circle" style="color: var(--success-color)"></i>
+                                Interface compatible
                             </div>
+                            <div>Mode actuel : ${data.current_mode}</div>
                         </div>
-                        <button onclick="saveConfig('${interfaceName}', true)" 
-                                class="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 px-4 rounded-lg mt-4">
-                            <i class="fas fa-save mr-2"></i>Sauvegarder la configuration
-                        </button>
                     `;
+                    document.getElementById('save-button').style.display = 'block';
                 } else {
                     scanContent.innerHTML = `
-                        <div class="bg-red-800 rounded-lg p-4">
-                            <div class="flex items-center">
-                                <i class="fas fa-exclamation-circle text-red-400 text-2xl mr-3"></i>
-                                <div>
-                                    <h3 class="font-bold">Interface non compatible</h3>
-                                    <p class="text-gray-300">Cette interface ne supporte pas le mode monitor.</p>
-                                    <p class="text-gray-400 text-sm mt-2">⚠️ Certaines fonctionnalités pourraient ne pas fonctionner correctement.</p>
-                                </div>
+                        <div class="result-item">
+                            <div>
+                                <i class="fas fa-exclamation-triangle" style="color: var(--warning-color)"></i>
+                                Interface non compatible
                             </div>
+                            <div>Mode monitor non supporté</div>
                         </div>
-                        <div class="flex space-x-4 mt-4">
-                            <button onclick="saveConfig('${interfaceName}', false)" 
-                                    class="flex-1 bg-yellow-600 hover:bg-yellow-700 text-white py-3 px-4 rounded-lg">
-                                <i class="fas fa-exclamation-triangle mr-2"></i>Continuer quand même
-                            </button>
-                            <button onclick="document.getElementById('scan-results').classList.add('hidden')" 
-                                    class="flex-1 bg-gray-600 hover:bg-gray-700 text-white py-3 px-4 rounded-lg">
-                                <i class="fas fa-times mr-2"></i>Choisir une autre interface
-                            </button>
+                        <div class="terminal">
+                            <p class="warning">⚠️ Cette interface ne supporte pas le mode monitor.</p>
+                            <p>Certaines fonctionnalités pourraient ne pas fonctionner correctement.</p>
                         </div>
                     `;
+                    document.getElementById('save-button').style.display = 'block';
                 }
             } catch (error) {
+                showToast('Erreur lors de la vérification de l\'interface', 'error');
                 console.error('Erreur:', error);
-                const scanContent = document.getElementById('scan-content');
-                scanContent.innerHTML = `
-                    <div class="bg-red-800 rounded-lg p-4">
-                        <div class="flex items-center">
-                            <i class="fas fa-times-circle text-red-400 text-2xl mr-3"></i>
-                            <div>
-                                <h3 class="font-bold">Erreur lors de la vérification</h3>
-                                <p class="text-gray-300">Impossible de vérifier les capacités de l'interface.</p>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="flex space-x-4 mt-4">
-                        <button onclick="saveConfig('${interfaceName}', false)" 
-                                class="flex-1 bg-yellow-600 hover:bg-yellow-700 text-white py-3 px-4 rounded-lg">
-                            <i class="fas fa-exclamation-triangle mr-2"></i>Continuer quand même
-                        </button>
-                        <button onclick="document.getElementById('scan-results').classList.add('hidden')" 
-                                class="flex-1 bg-gray-600 hover:bg-gray-700 text-white py-3 px-4 rounded-lg">
-                            <i class="fas fa-times mr-2"></i>Choisir une autre interface
-                        </button>
-                    </div>
-                `;
-            } finally {
-                document.querySelector(`#status-${interfaceName}`).classList.add('hidden');
             }
         }
 
-        async function saveConfig(interface, monitorSupported) {
+        async function saveConfig() {
+            if (!selectedInterface) {
+                showToast('Veuillez sélectionner une interface', 'error');
+                return;
+            }
+
             try {
                 const response = await fetch('/api/save_config', {
                     method: 'POST',
@@ -170,15 +366,19 @@
                         'Content-Type': 'application/json',
                     },
                     body: JSON.stringify({
-                        interface: interface,
-                        monitor_supported: monitorSupported
+                        interface: selectedInterface,
+                        monitor_supported: true // À adapter selon les résultats du scan
                     })
                 });
                 
                 if (response.ok) {
-                    window.location.href = '/';
+                    showToast('Configuration sauvegardée avec succès', 'success');
+                    setTimeout(() => window.location.href = '/', 1500);
+                } else {
+                    showToast('Erreur lors de la sauvegarde', 'error');
                 }
             } catch (error) {
+                showToast('Erreur lors de la sauvegarde', 'error');
                 console.error('Erreur:', error);
             }
         }

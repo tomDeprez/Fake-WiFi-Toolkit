@@ -1,49 +1,54 @@
 from flask import Flask, render_template, jsonify, request, redirect, url_for
-import subprocess
-import os
+import asyncio
+import websockets
 import json
+import os
+import subprocess
 import netifaces
-from pathlib import Path
 from datetime import datetime
+from threading import Thread
+import pexpect
+from pathlib import Path
 
 app = Flask(__name__)
 
-# Configuration des scripts
+# Configuration des scripts avec des descriptions plus détaillées
 SCRIPTS = {
     'fake_wifi': {
-        'name': 'Faux Point d\'Accès',
+        'name': 'Point d\'Accès Malveillant',
         'script': './fake_wifi.sh',
         'icon': 'wifi',
-        'description': 'Crée un point d\'accès Wi-Fi malveillant',
-        'status': 'stopped'
+        'description': 'Crée un point d\'accès Wi-Fi piège pour capturer les mots de passe',
+        'status': 'stopped',
+        'requires_monitor': True,
+        'requires_sudo': True
     },
     'wifi_sniffer': {
-        'name': 'Sniffer Wi-Fi',
+        'name': 'Analyseur Wi-Fi',
         'script': './wifi_sniffer.sh',
-        'icon': 'radar',
-        'description': 'Capture le trafic Wi-Fi',
-        'status': 'stopped'
+        'icon': 'search',
+        'description': 'Capture et analyse le trafic Wi-Fi en temps réel',
+        'status': 'stopped',
+        'requires_monitor': True,
+        'requires_sudo': True
     },
     'wifi_sniffer_all': {
-        'name': 'Sniffer Complet',
+        'name': 'Analyseur Réseau Complet',
         'script': './wifi_sniffer_all.sh',
-        'icon': 'search',
-        'description': 'Capture tout le trafic',
-        'status': 'stopped'
-    },
-    'wifi_sniffer_cookie': {
-        'name': 'Cookie Sniffer',
-        'script': './wifi_sniffer_cookie.sh',
-        'icon': 'cookie',
-        'description': 'Capture les cookies',
-        'status': 'stopped'
+        'icon': 'network-wired',
+        'description': 'Capture tout le trafic réseau, y compris les paquets HTTP',
+        'status': 'stopped',
+        'requires_monitor': True,
+        'requires_sudo': True
     },
     'mac_random': {
-        'name': 'MAC Random',
+        'name': 'Changeur MAC',
         'script': './mac_random.sh',
-        'icon': 'shuffle',
-        'description': 'Change l\'adresse MAC aléatoirement',
-        'status': 'stopped'
+        'icon': 'random',
+        'description': 'Change aléatoirement l\'adresse MAC de l\'interface',
+        'status': 'stopped',
+        'requires_monitor': False,
+        'requires_sudo': True
     }
 }
 
@@ -54,40 +59,202 @@ LOGS_DIR = "logs"
 if not os.path.exists(LOGS_DIR):
     os.makedirs(LOGS_DIR)
 
+# Gestion des processus et des WebSockets
+class ScriptProcess:
+    def __init__(self, script_id, websocket):
+        self.script_id = script_id
+        self.websocket = websocket
+        self.process = None
+        self.output_buffer = []
+        self.status = 'stopped'
+
+    async def start(self, sudo_password):
+        if not os.path.exists(SCRIPTS[self.script_id]['script']):
+            await self.send_message('error', f"Script introuvable: {self.script_id}")
+            return False
+
+        try:
+            # Rendre le script exécutable
+            script_path = os.path.abspath(SCRIPTS[self.script_id]['script'])
+            os.chmod(script_path, 0o755)
+
+            # Démarrage du script avec pexpect
+            cmd = f"sudo -S bash {script_path}"
+            self.process = pexpect.spawn(cmd, encoding='utf-8', timeout=10)
+            
+            # Gestion plus robuste du prompt sudo
+            patterns = [
+                '[Pp]assword.*:', 
+                '[Mm]ot de passe.*:',
+                pexpect.EOF,
+                pexpect.TIMEOUT
+            ]
+            
+            index = self.process.expect(patterns)
+            
+            if index in [0, 1]:  # Si on trouve un prompt de mot de passe
+                self.process.sendline(sudo_password)
+                await self.send_message('info', "Mot de passe envoyé, démarrage du script...")
+            elif index == 2:  # EOF
+                await self.send_message('error', "Le script s'est terminé prématurément")
+                return False
+            elif index == 3:  # TIMEOUT
+                await self.send_message('error', "Timeout lors de l'attente du prompt sudo")
+                return False
+
+            # Mise à jour du statut
+            self.status = 'running'
+            SCRIPTS[self.script_id]['status'] = 'running'
+            
+            # Démarrage de la lecture de sortie
+            asyncio.create_task(self.read_output())
+            return True
+
+        except Exception as e:
+            await self.send_message('error', f"Erreur de démarrage: {str(e)}")
+            if self.process:
+                self.process.close()
+            return False
+
+    async def stop(self):
+        if self.process and self.process.isalive():
+            self.process.terminate()
+            self.process.close()
+            self.status = 'stopped'
+            SCRIPTS[self.script_id]['status'] = 'stopped'
+            await self.send_message('info', "Script arrêté")
+
+    async def read_output(self):
+        while self.process and self.process.isalive():
+            try:
+                # Lecture de la sortie avec timeout
+                index = self.process.expect(['.+', pexpect.TIMEOUT, pexpect.EOF], timeout=1)
+                
+                if index == 0:  # Nouvelle sortie disponible
+                    line = self.process.match.group(0).strip()
+                    if line:
+                        # Détection du type de message
+                        msg_type = 'output'
+                        if '[❌]' in line:
+                            msg_type = 'error'
+                        elif '[✅]' in line:
+                            msg_type = 'success'
+                        elif '[ℹ️]' in line:
+                            msg_type = 'info'
+                        elif '[⚠️]' in line:
+                            msg_type = 'warning'
+                        
+                        await self.send_message(msg_type, line)
+                
+            except Exception as e:
+                await self.send_message('error', f"Erreur de lecture: {str(e)}")
+                break
+
+        # Nettoyage final
+        if self.status != 'stopped':
+            self.status = 'stopped'
+            SCRIPTS[self.script_id]['status'] = 'stopped'
+            await self.send_message('info', "Script terminé")
+
+    async def verify_sudo(self, password):
+        try:
+            # Utilisation de subprocess au lieu de pexpect pour la vérification
+            process = await asyncio.create_subprocess_exec(
+                'sudo', '-S', 'true',
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            
+            # Envoi du mot de passe
+            stdout, stderr = await process.communicate(input=f"{password}\n".encode())
+            
+            # Vérification du code de retour
+            return process.returncode == 0
+        except Exception as e:
+            print(f"Erreur verification sudo: {str(e)}")
+            return False
+
+    async def send_message(self, type, message):
+        try:
+            await self.websocket.send(json.dumps({
+                'script': self.script_id,
+                'type': type,
+                'message': message
+            }))
+        except:
+            pass
+
+# Gestionnaire de connexion WebSocket
+async def websocket_handler(websocket):
+    processes = {}
+    
+    try:
+        async for message in websocket:
+            data = json.loads(message)
+            script_id = data.get('script')
+            command = data.get('command')
+            
+            if not script_id or script_id not in SCRIPTS:
+                continue
+
+            if command == 'start':
+                if script_id not in processes:
+                    await websocket.send(json.dumps({
+                        'script': script_id,
+                        'type': 'password_prompt',
+                        'message': 'Veuillez entrer le mot de passe sudo'
+                    }))
+                
+            elif command == 'password':
+                process = ScriptProcess(script_id, websocket)
+                if await process.start(data.get('input')):
+                    processes[script_id] = process
+                
+            elif command == 'stop':
+                if script_id in processes:
+                    await processes[script_id].stop()
+                    del processes[script_id]
+
+    except websockets.exceptions.ConnectionClosed:
+        for process in processes.values():
+            await process.stop()
+    except Exception as e:
+        print(f"Erreur WebSocket: {e}")
+
+# Routes Flask
+@app.route('/')
+def index():
+    return render_template('index.html', scripts=SCRIPTS, ws_port=8765)
+
+@app.route('/setup')
+def setup():
+    interfaces = get_network_interfaces()
+    return render_template('setup.html', interfaces=interfaces)
+
 def get_network_interfaces():
     interfaces = []
     for iface in netifaces.interfaces():
         try:
-            # Récupère les informations de l'interface
             addrs = netifaces.ifaddresses(iface)
-            
-            # Récupère l'adresse IP si disponible
+            mac = addrs.get(netifaces.AF_LINK, [{'addr': 'N/A'}])[0]['addr']
             ip = addrs.get(netifaces.AF_INET, [{'addr': 'Non connecté'}])[0]['addr']
             
-            # Récupère l'adresse MAC si disponible
-            mac = addrs.get(netifaces.AF_LINK, [{'addr': 'N/A'}])[0]['addr']
-            
-            # Vérifie si c'est une interface wifi avec iwconfig
+            # Détection Wi-Fi
+            is_wifi = False
             try:
-                wifi_info = subprocess.check_output(['iwconfig', iface], stderr=subprocess.DEVNULL).decode()
-                is_wifi = 'no wireless extensions' not in wifi_info
-                if is_wifi:
-                    wifi_details = wifi_info.split('\n')[0]
-                else:
-                    wifi_details = None
+                output = subprocess.check_output(['iwconfig', iface], stderr=subprocess.DEVNULL).decode()
+                is_wifi = 'no wireless extensions' not in output
             except:
-                wifi_details = None
-            
-            # Ajoute l'interface à la liste
+                pass
+                
             interfaces.append({
                 'name': iface,
-                'ip': ip,
                 'mac': mac,
-                'is_wifi': bool(wifi_details),
-                'info': wifi_details if wifi_details else f"IP: {ip}, MAC: {mac}"
+                'ip': ip,
+                'is_wifi': is_wifi
             })
-        except Exception as e:
-            print(f"Erreur lors de la lecture de {iface}: {str(e)}")
+        except:
             continue
     return interfaces
 
@@ -103,27 +270,20 @@ def save_config(config):
 
 def check_monitor_support(interface):
     try:
-        output = subprocess.check_output(['iw', interface, 'info'], stderr=subprocess.STDOUT).decode()
-        supported_modes = subprocess.check_output(['iwconfig', interface], stderr=subprocess.STDOUT).decode()
-        monitor_support = 'monitor' in output.lower() or 'monitor' in supported_modes.lower()
+        # Vérifie les modes supportés avec 'iw list'
+        iw_list_output = subprocess.check_output(['iw', 'list'], stderr=subprocess.STDOUT).decode()
+        supports_monitor = "monitor" in iw_list_output.lower()
+
+        # Vérifie le mode actuel
+        iw_info_output = subprocess.check_output(['iw', interface, 'info'], stderr=subprocess.STDOUT).decode()
+        is_monitor_mode = 'type monitor' in iw_info_output
+
         return {
-            'supported': monitor_support,
-            'current_mode': 'monitor' if 'type monitor' in output else 'managed'
+            'supported': supports_monitor,
+            'current_mode': 'monitor' if is_monitor_mode else 'managed'
         }
-    except:
+    except subprocess.CalledProcessError:
         return {'supported': False, 'current_mode': 'unknown'}
-
-@app.route('/')
-def index():
-    config = load_config()
-    if not config:
-        return redirect(url_for('setup'))
-    return render_template('index.html', scripts=SCRIPTS)
-
-@app.route('/setup')
-def setup():
-    interfaces = get_network_interfaces()
-    return render_template('setup.html', interfaces=interfaces)
 
 @app.route('/api/check_interface/<interface>', methods=['POST'])
 def check_interface(interface):
@@ -139,30 +299,6 @@ def save_interface_config():
     }
     save_config(config)
     return jsonify({'status': 'success'})
-
-@app.route('/api/start/<script_id>', methods=['POST'])
-def start_script(script_id):
-    if script_id in SCRIPTS:
-        try:
-            subprocess.Popen(['sudo', SCRIPTS[script_id]['script']], 
-                           stdout=subprocess.PIPE,
-                           stderr=subprocess.PIPE)
-            SCRIPTS[script_id]['status'] = 'running'
-            return jsonify({'status': 'success'})
-        except Exception as e:
-            return jsonify({'status': 'error', 'message': str(e)})
-    return jsonify({'status': 'error', 'message': 'Script non trouvé'})
-
-@app.route('/api/stop/<script_id>', methods=['POST'])
-def stop_script(script_id):
-    if script_id in SCRIPTS:
-        try:
-            subprocess.run(['sudo', 'pkill', '-f', SCRIPTS[script_id]['script']])
-            SCRIPTS[script_id]['status'] = 'stopped'
-            return jsonify({'status': 'success'})
-        except Exception as e:
-            return jsonify({'status': 'error', 'message': str(e)})
-    return jsonify({'status': 'error', 'message': 'Script non trouvé'})
 
 @app.route('/api/logs')
 def get_logs():
@@ -220,5 +356,23 @@ def get_config():
         return jsonify(config)
     return jsonify({'error': 'Configuration non trouvée'}), 404
 
+def run_flask():
+    app.run(host='0.0.0.0', port=5000, debug=False)
+
+def run_websocket():
+    async def start_websocket():
+        async with websockets.serve(websocket_handler, "localhost", 8765):
+            await asyncio.Future()  # run forever
+
+    asyncio.run(start_websocket())
+
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True) 
+    # Démarrage du serveur Flask dans un thread séparé
+    flask_thread = Thread(target=run_flask)
+    flask_thread.start()
+
+    # Démarrage du serveur WebSocket dans le thread principal
+    try:
+        run_websocket()
+    except KeyboardInterrupt:
+        print("\nServeur arrêté")

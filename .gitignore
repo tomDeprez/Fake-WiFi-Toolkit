@@ -3,3 +3,5 @@
 captured_passwords.txt
 venv/*
 config.json
+captures/*.csv
+captures/

