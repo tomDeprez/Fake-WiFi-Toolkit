@@ -303,7 +303,7 @@
 
         <div class="setup-grid">
             {% for interface in interfaces %}
-            <div class="interface-card" onclick="selectInterface('{{ interface.name }}')">
+            <div class="interface-card" onclick="selectInterface('{{ interface.name }}', {{ 'true' if interface.is_wifi else 'false' }})">
                 <div class="status-badge {% if interface.is_wifi %}wifi{% else %}ethernet{% endif %}">
                     {% if interface.is_wifi %}Wi-Fi{% else %}Ethernet{% endif %}
                 </div>
@@ -357,30 +357,57 @@
             setTimeout(() => toast.remove(), 3000);
         }
 
-        async function selectInterface(interfaceName) {
+        async function selectInterface(interfaceName, isWifi) {
+            // Vérifier si l'interface est de type WiFi
+            if (!isWifi) {
+                showToast('Veuillez sélectionner une interface Wi-Fi uniquement', 'error');
+                return;
+            }
+
             selectedInterface = interfaceName;
             
-            // Mise à jour visuelle
+            // Mise à jour visuelle immédiate
             document.querySelectorAll('.interface-card').forEach(card => {
                 card.classList.remove('selected');
+                const interfaceNameInCard = card.querySelector('h3').textContent;
+                if (interfaceNameInCard === interfaceName) {
+                    card.classList.add('selected');
+                    showToast(`Interface Wi-Fi ${interfaceName} sélectionnée`, 'info');
+                }
             });
-            document.querySelector(`.interface-card:has(h3:contains('${interfaceName}'))`).classList.add('selected');
             
-            // Afficher la section des résultats
-            document.getElementById('scan-results').classList.add('visible');
+            // Afficher la section des résultats avec animation
+            const scanResults = document.getElementById('scan-results');
+            scanResults.classList.add('visible');
             
             try {
+                // Afficher le spinner pendant le chargement
+                const scanContent = document.getElementById('scan-content');
+                scanContent.innerHTML = `
+                    <div class="loading-spinner">
+                        <i class="fas fa-circle-notch"></i>
+                    </div>
+                    <p style="text-align: center; color: var(--text-secondary);">
+                        Analyse de l'interface ${interfaceName} en cours...
+                    </p>
+                `;
+                
+                // Vérifier la compatibilité de l'interface
                 const response = await fetch(`/api/check_interface/${interfaceName}`, {
                     method: 'POST'
                 });
+                
+                if (!response.ok) {
+                    throw new Error('Erreur lors de la vérification de l\'interface');
+                }
+                
                 const data = await response.json();
                 
-                const scanContent = document.getElementById('scan-content');
-                
+                // Mettre à jour l'affichage avec les résultats
                 scanContent.innerHTML = `
                     <div class="result-item">
                         <div>
-                            <h3>Capacités de l'interface</h3>
+                            <h3>Capacités de l'interface ${interfaceName}</h3>
                             <div class="capability-badge ${data.supported ? 'supported' : 'unsupported'}">
                                 <i class="fas fa-${data.supported ? 'check' : 'times'}"></i>
                                 Mode Monitor: ${data.supported ? 'Supporté' : 'Non supporté'}
@@ -406,49 +433,30 @@
                     ` : ''}
                 `;
                 
-                document.getElementById('save-button').style.display = 'block';
-            } catch (error) {
-                showToast('Erreur lors de la vérification de l\'interface', 'error');
-                console.error('Erreur:', error);
-            }
-        }
-
-        async function saveConfig() {
-            if (!selectedInterface) {
-                showToast('Veuillez sélectionner une interface', 'error');
-                return;
-            }
-
-            try {
-                // Vérifier d'abord si l'interface est compatible
-                const checkResponse = await fetch(`/api/check_interface/${selectedInterface}`, {
-                    method: 'POST'
-                });
-                const checkData = await checkResponse.json();
-
-                // Sauvegarder la configuration
-                const response = await fetch('/api/save_config', {
+                // Sauvegarder automatiquement la configuration
+                const saveResponse = await fetch('/api/save_config', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                     },
                     body: JSON.stringify({
                         interface: selectedInterface,
-                        monitor_supported: checkData.supported
+                        monitor_supported: data.supported,
+                        virtual_support: data.virtual_support
                     })
                 });
                 
-                if (response.ok) {
-                    showToast('Configuration sauvegardée avec succès', 'success');
-                    setTimeout(() => window.location.href = '/', 1500);
-                } else {
-                    showToast('Erreur lors de la sauvegarde', 'error');
+                if (!saveResponse.ok) {
+                    throw new Error('Erreur lors de la sauvegarde de la configuration');
                 }
+                
+                showToast(`Configuration mise à jour pour ${interfaceName}`, 'success');
+                
             } catch (error) {
-                showToast('Erreur lors de la sauvegarde', 'error');
+                showToast(`Erreur: ${error.message}`, 'error');
                 console.error('Erreur:', error);
             }
         }
     </script>
 </body>
-</html> 
+</html>
