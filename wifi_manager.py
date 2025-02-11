@@ -49,6 +49,24 @@ SCRIPTS = {
         'status': 'stopped',
         'requires_monitor': False,
         'requires_sudo': True
+    },
+    'wifi_jammer': {
+        'name': 'Brouilleur Wi-Fi',
+        'script': './wifi_jammer.sh',
+        'icon': 'ban',
+        'description': 'Scanne les réseaux Wi-Fi et lance une attaque de désauthentification',
+        'status': 'stopped',
+        'requires_monitor': True,
+        'requires_sudo': True
+    },
+    'wifi_stealer' : {
+        'name': 'Capture Handshake',
+        'script': './wifi_stealer.sh',
+        'icon': 'lock',
+        'description': 'Capture les handshakes WPA2/WPA3 pour analyse',
+        'status': 'stopped',
+        'requires_monitor': True,
+        'requires_sudo': True
     }
 }
 
