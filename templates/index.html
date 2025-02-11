@@ -108,6 +108,126 @@
                 justify-content: center;
             }
         }
+
+        .virtual-interfaces-section {
+            margin-top: 3rem;
+            padding-top: 3rem;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .create-interface-btn {
+            background-color: var(--accent-color);
+            color: var(--bg-primary);
+            border: none;
+            padding: 1rem 2rem;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            margin-bottom: 2rem;
+        }
+
+        .create-interface-btn:hover {
+            background-color: #00cc00;
+        }
+
+        .virtual-interface {
+            margin-bottom: 2rem;
+            padding: 1rem;
+            background-color: var(--bg-secondary);
+            border-radius: 10px;
+            animation: slideDown 0.3s ease;
+        }
+
+        .virtual-interface-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+        }
+
+        .delete-interface-btn {
+            background-color: var(--error-color);
+            color: white;
+            border: none;
+            padding: 0.5rem 1rem;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+
+        @keyframes slideDown {
+            from { opacity: 0; transform: translateY(-20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.8);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal-content {
+            background-color: var(--bg-secondary);
+            padding: 2rem;
+            border-radius: 8px;
+            width: 90%;
+            max-width: 400px;
+            box-shadow: 0 0 20px rgba(0, 255, 0, 0.2);
+            border: 1px solid var(--accent-color);
+        }
+
+        .modal-content h2 {
+            color: var(--accent-color);
+            margin-top: 0;
+        }
+
+        .password-input {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            margin-top: 1rem;
+        }
+
+        .password-input input {
+            background-color: var(--bg-primary);
+            border: 1px solid var(--accent-color);
+            color: var(--text-primary);
+            padding: 0.5rem;
+            border-radius: 4px;
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .password-input button {
+            padding: 0.5rem 1rem;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-family: 'JetBrains Mono', monospace;
+            transition: all 0.3s ease;
+        }
+
+        #submit-password {
+            background-color: var(--accent-color);
+            color: var(--bg-primary);
+        }
+
+        #cancel-password {
+            background-color: var(--error-color);
+            color: var(--text-primary);
+        }
+
+        .password-input button:hover {
+            opacity: 0.8;
+        }
     </style>
 </head>
 <body>
@@ -117,7 +237,7 @@
         <h1><i class="fas fa-wifi"></i> Wi-Fi Manager</h1>
         
         {% if config %}
-        <div class="interface-info-banner">
+        <div class="interface-info-banner" id="main-interface">
             <div class="interface-details">
                 <div class="interface-main">
                     <p>
@@ -126,13 +246,13 @@
                 </div>
                 <div class="interface-capabilities">
                     <div class="capability">
-                        <span class="badge {% if config.monitor_supported %}success{% else %}error{% endif %}">
+                        <span class="badge {% if config.monitor_supported %}success{% else %}error{% endif %}" onclick="scrollToVirtualInterfaces()">
                             <i class="fas fa-{% if config.monitor_supported %}check{% else %}times{% endif %}"></i>
                             Mode Monitor {% if config.monitor_supported %}supporté{% else %}non supporté{% endif %}
                         </span>
                     </div>
                     <div class="capability">
-                        <span class="badge {% if config.virtual_support %}success{% else %}error{% endif %}">
+                        <span class="badge {% if config.virtual_support %}success{% else %}error{% endif %}" onclick="scrollToVirtualInterfaces()">
                             <i class="fas fa-{% if config.virtual_support %}check{% else %}times{% endif %}"></i>
                             Interfaces Virtuelles {% if config.virtual_support %}supportées{% else %}non supportées{% endif %}
                         </span>
@@ -158,16 +278,8 @@
             </div>
             {% endif %}
         </div>
-        {% else %}
-        <div class="interface-info-banner warning">
-            <p>
-                <i class="fas fa-exclamation-triangle"></i> Aucune interface configurée
-                <a href="/setup" class="config-link"><i class="fas fa-cog"></i> Configurer maintenant</a>
-            </p>
-        </div>
-        {% endif %}
 
-        <div class="grid">
+        <div class="grid" id="main-scripts">
             {% for script_id, script in scripts.items() %}
             <div class="card" data-script="{{ script_id }}">
                 <div class="card-header">
@@ -197,8 +309,259 @@
             </div>
             {% endfor %}
         </div>
+
+        {% if config.virtual_support %}
+        <div id="virtual-interfaces" class="virtual-interfaces-section">
+            <h2>Interfaces Virtuelles</h2>
+            <button class="create-interface-btn" onclick="createVirtualInterface()">
+                <i class="fas fa-plus"></i> Créer une nouvelle interface
+            </button>
+            
+            <div id="virtual-interfaces-list">
+                {% for interface_name in virtual_interfaces %}
+                <div class="virtual-interface" id="interface-{{ interface_name }}">
+                    <div class="virtual-interface-header">
+                        <h3>Interface Docker: {{ interface_name }}</h3>
+                        <button class="delete-interface-btn" onclick="deleteVirtualInterface('{{ interface_name }}')">
+                            <i class="fas fa-trash"></i> Supprimer
+                        </button>
+                    </div>
+                    <div class="grid">
+                        {{ interfaces_html[interface_name] | safe }}
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+
+        {% else %}
+        <div class="interface-info-banner warning">
+            <p>
+                <i class="fas fa-exclamation-triangle"></i> Aucune interface configurée
+                <a href="/setup" class="config-link"><i class="fas fa-cog"></i> Configurer maintenant</a>
+            </p>
+        </div>
+        {% endif %}
     </div>
 
     <script src="{{ url_for('static', filename='js/script.js') }}"></script>
+
+    <script>
+        // Définir SCRIPTS au début du script
+        const SCRIPTS = {{ scripts|tojson|safe }};
+        
+        // Initialiser le compteur avec le nombre d'interfaces existantes
+        let virtualInterfaceCount = {{ virtual_interfaces|length }};
+
+        function scrollToVirtualInterfaces() {
+            const virtualInterfacesSection = document.getElementById('virtual-interfaces');
+            if (virtualInterfacesSection) {
+                virtualInterfacesSection.scrollIntoView({ behavior: 'smooth' });
+            }
+        }
+
+        async function createVirtualInterface() {
+            virtualInterfaceCount++;
+            const interfaceName = `docker${virtualInterfaceCount}`;
+
+            try {
+                const response = await fetch('/api/create_virtual_interface', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ name: interfaceName })
+                });
+
+                if (!response.ok) {
+                    throw new Error('Erreur lors de la création de l\'interface virtuelle');
+                }
+
+                const data = await response.json();
+                
+                if (data.success) {
+                    const virtualInterfaceHtml = `
+                        <div class="virtual-interface" id="interface-${interfaceName}">
+                            <div class="virtual-interface-header">
+                                <h3>Interface Docker: ${interfaceName}</h3>
+                                <button class="delete-interface-btn" onclick="deleteVirtualInterface('${interfaceName}')">
+                                    <i class="fas fa-trash"></i> Supprimer
+                                </button>
+                            </div>
+                            <div class="grid">
+                                ${data.html}
+                            </div>
+                        </div>
+                    `;
+
+                    document.getElementById('virtual-interfaces-list').insertAdjacentHTML('beforeend', virtualInterfaceHtml);
+
+                    // Initialiser les scripts pour la nouvelle interface
+                    Object.keys(SCRIPTS).forEach(scriptId => {
+                        initializeScript(scriptId, interfaceName);
+                    });
+
+                } else {
+                    throw new Error(data.error || 'Erreur inconnue');
+                }
+
+            } catch (error) {
+                console.error('Erreur:', error);
+                alert('Erreur lors de la création de l\'interface virtuelle');
+            }
+        }
+
+        async function deleteVirtualInterface(interfaceName) {
+            try {
+                const response = await fetch('/api/delete_virtual_interface', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ name: interfaceName })
+                });
+
+                if (!response.ok) {
+                    throw new Error('Erreur lors de la suppression de l\'interface virtuelle');
+                }
+
+                const element = document.getElementById(`interface-${interfaceName}`);
+                element.style.animation = 'slideUp 0.3s ease';
+                setTimeout(() => element.remove(), 300);
+
+            } catch (error) {
+                console.error('Erreur:', error);
+                alert('Erreur lors de la suppression de l\'interface virtuelle');
+            }
+        }
+
+        let currentWebSocket = null;
+        let currentScriptInfo = null;
+
+        function showPasswordModal(scriptId, interfaceName = null) {
+            const modal = document.getElementById('password-modal');
+            const passwordInput = document.getElementById('sudo-password');
+            const submitButton = document.getElementById('submit-password');
+            const cancelButton = document.getElementById('cancel-password');
+
+            modal.style.display = 'flex';
+            passwordInput.focus();
+
+            // Stocker les informations du script courant
+            currentScriptInfo = { scriptId, interfaceName };
+
+            // Gérer la soumission du mot de passe
+            const handleSubmit = () => {
+                const password = passwordInput.value;
+                if (password) {
+                    if (currentWebSocket) {
+                        currentWebSocket.send(JSON.stringify({
+                            script: currentScriptInfo.scriptId,
+                            command: 'password',
+                            input: password,
+                            interface: currentScriptInfo.interfaceName
+                        }));
+                    }
+                    modal.style.display = 'none';
+                    passwordInput.value = '';
+                }
+            };
+
+            // Event listeners
+            submitButton.onclick = handleSubmit;
+            passwordInput.onkeypress = (e) => {
+                if (e.key === 'Enter') handleSubmit();
+            };
+            cancelButton.onclick = () => {
+                modal.style.display = 'none';
+                passwordInput.value = '';
+            };
+        }
+
+        function initializeWebSocket(scriptId, interfaceName = null) {
+            const ws = new WebSocket(`ws://${window.location.hostname}:8765`);
+            currentWebSocket = ws;
+            
+            const terminalId = interfaceName ? 
+                `terminal-${scriptId}-${interfaceName}` : 
+                `terminal-${scriptId}`;
+            
+            ws.onmessage = function(event) {
+                const data = JSON.parse(event.data);
+                // Vérifier si le message correspond au bon script et à la bonne interface
+                if (data.script === scriptId && data.interface === interfaceName) {
+                    if (data.type === 'password_prompt') {
+                        showPasswordModal(scriptId, interfaceName);
+                    } else {
+                        const terminal = document.getElementById(terminalId);
+                        appendToTerminal(terminal, data);
+                    }
+                }
+            };
+
+            return ws;
+        }
+
+        function initializeScript(scriptId, interfaceName = null) {
+            const buttonSelector = interfaceName ? 
+                `[data-script="${scriptId}"][data-interface="${interfaceName}"]` : 
+                `[data-script="${scriptId}"]:not([data-interface])`;
+            
+            const button = document.querySelector(buttonSelector);
+            if (!button) return;
+
+            const ws = initializeWebSocket(scriptId, interfaceName);
+            
+            button.addEventListener('click', function() {
+                const action = button.getAttribute('data-action');
+                
+                if (action === 'start') {
+                    ws.send(JSON.stringify({
+                        script: scriptId,
+                        command: 'start',
+                        interface: interfaceName,
+                        target: interfaceName ? 'docker' : 'host'
+                    }));
+                } else if (action === 'stop') {
+                    ws.send(JSON.stringify({
+                        script: scriptId,
+                        command: 'stop',
+                        interface: interfaceName,
+                        target: interfaceName ? 'docker' : 'host'
+                    }));
+                }
+            });
+        }
+
+        // Initialisation au chargement de la page
+        document.addEventListener('DOMContentLoaded', function() {
+            // Scripts de l'interface principale
+            Object.keys(SCRIPTS).forEach(scriptId => {
+                initializeScript(scriptId);
+            });
+
+            // Scripts des interfaces Docker
+            document.querySelectorAll('.virtual-interface').forEach(interface => {
+                const interfaceName = interface.id.replace('interface-', '');
+                Object.keys(SCRIPTS).forEach(scriptId => {
+                    initializeScript(scriptId, interfaceName);
+                });
+            });
+        });
+    </script>
+
+    <!-- Ajouter la modale de mot de passe -->
+    <div id="password-modal" class="modal">
+        <div class="modal-content">
+            <h2>Authentification requise</h2>
+            <p>Veuillez entrer votre mot de passe sudo pour continuer</p>
+            <div class="password-input">
+                <input type="password" id="sudo-password" placeholder="Mot de passe sudo...">
+                <button id="submit-password">Valider</button>
+                <button id="cancel-password">Annuler</button>
+            </div>
+        </div>
+    </div>
 </body>
 </html> 

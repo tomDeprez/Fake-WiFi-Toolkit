@@ -153,4 +153,41 @@ body {
 
 .script-action[data-action="stop"]:hover {
     background-color: #880000;
+}
+
+.capability-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.5rem 1rem;
+    border-radius: 20px;
+    margin: 0.5rem;
+    font-size: 0.9rem;
+}
+
+.capability-badge.supported {
+    background-color: rgba(0, 255, 0, 0.2);
+    color: var(--success-color);
+}
+
+.capability-badge.unsupported {
+    background-color: rgba(255, 51, 51, 0.2);
+    color: var(--error-color);
+}
+
+.capability-badge i {
+    margin-right: 0.5rem;
+}
+
+#docker-info {
+    margin-top: 1rem;
+    padding: 1rem;
+    background-color: rgba(0, 255, 0, 0.1);
+    border-radius: 5px;
+}
+
+#docker-info .info {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    color: var(--success-color);
 } 

@@ -416,6 +416,10 @@
                                 <i class="fas fa-${data.virtual_support ? 'check' : 'times'}"></i>
                                 Interfaces Virtuelles: ${data.virtual_support ? 'Supporté' : 'Non supporté'}
                             </div>
+                            <div class="capability-badge ${data.docker_support ? 'supported' : 'unsupported'}">
+                                <i class="fas fa-${data.docker_support ? 'check' : 'times'}"></i>
+                                Support Docker: ${data.docker_support ? 'Disponible' : 'Non disponible'}
+                            </div>
                         </div>
                         <div>Mode actuel : ${data.current_mode}</div>
                     </div>
@@ -425,10 +429,9 @@
                         <p>Certaines fonctionnalités pourraient ne pas fonctionner correctement.</p>
                     </div>
                     ` : ''}
-                    ${!data.virtual_support ? `
+                    ${!data.virtual_support && data.docker_support ? `
                     <div class="terminal">
-                        <p class="warning">⚠️ Cette interface ne supporte pas la création d'interfaces virtuelles.</p>
-                        <p>La création de plusieurs points d'accès simultanés ne sera pas possible.</p>
+                        <p class="info">ℹ️ Docker est disponible ! Les interfaces virtuelles seront simulées via des conteneurs Docker.</p>
                     </div>
                     ` : ''}
                 `;
@@ -455,6 +458,44 @@
             } catch (error) {
                 showToast(`Erreur: ${error.message}`, 'error');
                 console.error('Erreur:', error);
+            }
+        }
+
+        async function checkInterface(interface) {
+            try {
+                const response = await fetch(`/api/check_interface/${interface}`, {
+                    method: 'POST'
+                });
+                const data = await response.json();
+                
+                // Mise à jour des badges
+                updateCapabilityBadge('monitor-support', data.supported, 'Support Monitor');
+                updateCapabilityBadge('virtual-support', data.virtual_support, 'Interfaces Virtuelles');
+                updateCapabilityBadge('docker-support', data.docker_support, 'Support Docker');
+                
+                // Afficher le message Docker si disponible
+                const dockerInfo = document.getElementById('docker-info');
+                if (data.docker_support) {
+                    dockerInfo.style.display = 'block';
+                } else {
+                    dockerInfo.style.display = 'none';
+                }
+                
+                return data;
+            } catch (error) {
+                console.error('Erreur lors de la vérification:', error);
+                return null;
+            }
+        }
+
+        function updateCapabilityBadge(id, supported, label) {
+            const badge = document.getElementById(id);
+            if (badge) {
+                badge.className = `capability-badge ${supported ? 'supported' : 'unsupported'}`;
+                badge.innerHTML = `
+                    <i class="fas fa-${supported ? 'check' : 'times'}"></i>
+                    ${label}: ${supported ? 'Disponible' : 'Non disponible'}
+                `;
             }
         }
     </script>

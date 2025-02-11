@@ -1,0 +1,30 @@
+{% for script_id, script in scripts.items() %}
+<div class="card" 
+     data-script="{{ script_id }}" 
+     data-interface="{{ interface_name }}"
+     data-target="{{ 'docker' if interface_name else 'host' }}">
+    <div class="card-header">
+        <i class="fas fa-{{ script.icon }}"></i>
+        <h2>{{ script.name }}</h2>
+        <!-- Debug info -->
+        <small style="display: none;">Interface: {{ interface_name|default('none', true) }}</small>
+    </div>
+    <p class="description">{{ script.description }}</p>
+    
+    <div class="terminal-container">
+        <div id="terminal-{{ script_id }}{% if interface_name %}-{{ interface_name }}{% endif %}" class="terminal"></div>
+        <div id="input-{{ script_id }}{% if interface_name %}-{{ interface_name }}{% endif %}" class="terminal-input">
+            <input type="password" placeholder="Mot de passe sudo...">
+        </div>
+    </div>
+
+    <div class="card-actions">
+        <button class="script-action" 
+                data-action="start" 
+                data-script="{{ script_id }}"
+                data-interface="{{ interface_name }}">
+            <i class="fas fa-play"></i> Démarrer
+        </button>
+    </div>
+</div>
+{% endfor %} 
