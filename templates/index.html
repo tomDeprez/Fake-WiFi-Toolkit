@@ -7,12 +7,166 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        .interface-info-banner {
+            background-color: var(--bg-secondary);
+            padding: 1.5rem;
+            border-radius: 10px;
+            margin-bottom: 2rem;
+        }
+
+        .interface-details {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 1rem;
+        }
+
+        .interface-main {
+            flex: 1;
+            min-width: 200px;
+        }
+
+        .interface-capabilities {
+            display: flex;
+            gap: 1rem;
+            flex-wrap: wrap;
+        }
+
+        .capability {
+            display: flex;
+            align-items: center;
+        }
+
+        .badge {
+            padding: 0.5rem 1rem;
+            border-radius: 20px;
+            font-size: 0.9rem;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .badge.success {
+            background-color: rgba(0, 255, 0, 0.2);
+            color: var(--success-color);
+        }
+
+        .badge.error {
+            background-color: rgba(255, 51, 51, 0.2);
+            color: var(--error-color);
+        }
+
+        .config-link {
+            color: var(--accent-color);
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem 1rem;
+            border-radius: 5px;
+            background-color: rgba(0, 255, 0, 0.1);
+            transition: background-color 0.3s ease;
+        }
+
+        .config-link:hover {
+            background-color: rgba(0, 255, 0, 0.2);
+        }
+
+        .interface-warnings {
+            margin-top: 1rem;
+            padding-top: 1rem;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .warning-message {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            color: var(--warning-color);
+            padding: 0.5rem 0;
+        }
+
+        .warning-message i {
+            font-size: 1.1rem;
+        }
+
+        @media (max-width: 768px) {
+            .interface-details {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+
+            .interface-capabilities {
+                flex-direction: column;
+            }
+
+            .config-link {
+                margin-top: 1rem;
+                width: 100%;
+                justify-content: center;
+            }
+        }
+    </style>
 </head>
 <body>
     <input type="hidden" id="ws-port" value="{{ ws_port }}">
 
     <div class="container">
         <h1><i class="fas fa-wifi"></i> Wi-Fi Manager</h1>
+        
+        {% if config %}
+        <div class="interface-info-banner">
+            <div class="interface-details">
+                <div class="interface-main">
+                    <p>
+                        <i class="fas fa-network-wired"></i> Interface active : <strong>{{ config.wifi_interface }}</strong>
+                    </p>
+                </div>
+                <div class="interface-capabilities">
+                    <div class="capability">
+                        <span class="badge {% if config.monitor_supported %}success{% else %}error{% endif %}">
+                            <i class="fas fa-{% if config.monitor_supported %}check{% else %}times{% endif %}"></i>
+                            Mode Monitor {% if config.monitor_supported %}supporté{% else %}non supporté{% endif %}
+                        </span>
+                    </div>
+                    <div class="capability">
+                        <span class="badge {% if config.virtual_support %}success{% else %}error{% endif %}">
+                            <i class="fas fa-{% if config.virtual_support %}check{% else %}times{% endif %}"></i>
+                            Interfaces Virtuelles {% if config.virtual_support %}supportées{% else %}non supportées{% endif %}
+                        </span>
+                    </div>
+                </div>
+                <a href="/setup" class="config-link"><i class="fas fa-cog"></i> Configurer</a>
+            </div>
+            
+            {% if not config.monitor_supported or not config.virtual_support %}
+            <div class="interface-warnings">
+                {% if not config.monitor_supported %}
+                <div class="warning-message">
+                    <i class="fas fa-exclamation-triangle"></i>
+                    <span>Cette interface ne supporte pas le mode monitor. Certaines fonctionnalités ne seront pas disponibles.</span>
+                </div>
+                {% endif %}
+                {% if not config.virtual_support %}
+                <div class="warning-message">
+                    <i class="fas fa-exclamation-triangle"></i>
+                    <span>Cette interface ne supporte pas la création d'interfaces virtuelles. La création de plusieurs points d'accès simultanés ne sera pas possible.</span>
+                </div>
+                {% endif %}
+            </div>
+            {% endif %}
+        </div>
+        {% else %}
+        <div class="interface-info-banner warning">
+            <p>
+                <i class="fas fa-exclamation-triangle"></i> Aucune interface configurée
+                <a href="/setup" class="config-link"><i class="fas fa-cog"></i> Configurer maintenant</a>
+            </p>
+        </div>
+        {% endif %}
+
         <div class="grid">
             {% for script_id, script in scripts.items() %}
             <div class="card" data-script="{{ script_id }}">

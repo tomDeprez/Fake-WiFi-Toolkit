@@ -149,18 +149,14 @@
 
         .action-buttons {
             display: flex;
+            justify-content: space-between;
             gap: 1rem;
             margin-top: 2rem;
         }
 
         .btn {
             padding: 1rem 2rem;
-            border: none;
-            border-radius: 5px;
-            font-family: 'JetBrains Mono', monospace;
             font-size: 1rem;
-            cursor: pointer;
-            transition: background-color 0.3s ease;
             display: flex;
             align-items: center;
             gap: 0.5rem;
@@ -239,12 +235,69 @@
             from { transform: translateX(100%); }
             to { transform: translateX(0); }
         }
+
+        .header-actions {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+        }
+
+        .capability-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem 1rem;
+            border-radius: 20px;
+            margin: 0.5rem;
+            font-size: 0.9rem;
+        }
+
+        .capability-badge.supported {
+            background-color: rgba(0, 255, 0, 0.2);
+            color: var(--success-color);
+        }
+
+        .capability-badge.unsupported {
+            background-color: rgba(255, 51, 51, 0.2);
+            color: var(--error-color);
+        }
+
+        .header-top {
+            display: flex;
+            align-items: center;
+            gap: 2rem;
+            margin-bottom: 1rem;
+        }
+
+        .header-top .btn-secondary {
+            padding: 0.75rem 1.5rem;
+            background-color: var(--bg-secondary);
+            color: var(--text-primary);
+            border: 1px solid var(--text-secondary);
+            border-radius: 5px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .header-top .btn-secondary:hover {
+            background-color: var(--text-secondary);
+            color: var(--bg-primary);
+        }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
-            <h1><i class="fas fa-wifi"></i> Configuration Wi-Fi Manager</h1>
+            <div class="header-top">
+                <button class="btn btn-secondary" onclick="window.location.href='/'">
+                    <i class="fas fa-arrow-left"></i> Retour à l'accueil
+                </button>
+                <h1><i class="fas fa-wifi"></i> Configuration Wi-Fi Manager</h1>
+            </div>
             <p>Sélectionnez votre interface Wi-Fi pour commencer</p>
         </div>
 
@@ -265,7 +318,12 @@
         </div>
 
         <div id="scan-results" class="scan-results">
-            <h2><i class="fas fa-search"></i> Analyse de l'interface</h2>
+            <div class="header-actions">
+                <h2><i class="fas fa-search"></i> Analyse de l'interface</h2>
+                <button class="btn btn-secondary" onclick="window.location.href='/'">
+                    <i class="fas fa-home"></i> Retour à l'accueil
+                </button>
+            </div>
             <div id="scan-content">
                 <div class="loading-spinner">
                     <i class="fas fa-circle-notch"></i>
@@ -274,8 +332,8 @@
         </div>
 
         <div class="action-buttons">
-            <button id="back-button" class="btn btn-secondary" style="display: none;" onclick="window.location.href='/'">
-                <i class="fas fa-arrow-left"></i> Retour
+            <button class="btn btn-secondary" onclick="window.location.href='/'">
+                <i class="fas fa-home"></i> Retour à l'accueil
             </button>
             <button id="save-button" class="btn btn-primary" style="display: none;" onclick="saveConfig()">
                 <i class="fas fa-save"></i> Sauvegarder la configuration
@@ -310,7 +368,6 @@
             
             // Afficher la section des résultats
             document.getElementById('scan-results').classList.add('visible');
-            document.getElementById('back-button').style.display = 'block';
             
             try {
                 const response = await fetch(`/api/check_interface/${interfaceName}`, {
@@ -320,33 +377,36 @@
                 
                 const scanContent = document.getElementById('scan-content');
                 
-                if (data.supported) {
-                    scanContent.innerHTML = `
-                        <div class="result-item">
-                            <div>
-                                <i class="fas fa-check-circle" style="color: var(--success-color)"></i>
-                                Interface compatible
+                scanContent.innerHTML = `
+                    <div class="result-item">
+                        <div>
+                            <h3>Capacités de l'interface</h3>
+                            <div class="capability-badge ${data.supported ? 'supported' : 'unsupported'}">
+                                <i class="fas fa-${data.supported ? 'check' : 'times'}"></i>
+                                Mode Monitor: ${data.supported ? 'Supporté' : 'Non supporté'}
                             </div>
-                            <div>Mode actuel : ${data.current_mode}</div>
-                        </div>
-                    `;
-                    document.getElementById('save-button').style.display = 'block';
-                } else {
-                    scanContent.innerHTML = `
-                        <div class="result-item">
-                            <div>
-                                <i class="fas fa-exclamation-triangle" style="color: var(--warning-color)"></i>
-                                Interface non compatible
+                            <div class="capability-badge ${data.virtual_support ? 'supported' : 'unsupported'}">
+                                <i class="fas fa-${data.virtual_support ? 'check' : 'times'}"></i>
+                                Interfaces Virtuelles: ${data.virtual_support ? 'Supporté' : 'Non supporté'}
                             </div>
-                            <div>Mode monitor non supporté</div>
                         </div>
-                        <div class="terminal">
-                            <p class="warning">⚠️ Cette interface ne supporte pas le mode monitor.</p>
-                            <p>Certaines fonctionnalités pourraient ne pas fonctionner correctement.</p>
-                        </div>
-                    `;
-                    document.getElementById('save-button').style.display = 'block';
-                }
+                        <div>Mode actuel : ${data.current_mode}</div>
+                    </div>
+                    ${!data.supported ? `
+                    <div class="terminal">
+                        <p class="warning">⚠️ Cette interface ne supporte pas le mode monitor.</p>
+                        <p>Certaines fonctionnalités pourraient ne pas fonctionner correctement.</p>
+                    </div>
+                    ` : ''}
+                    ${!data.virtual_support ? `
+                    <div class="terminal">
+                        <p class="warning">⚠️ Cette interface ne supporte pas la création d'interfaces virtuelles.</p>
+                        <p>La création de plusieurs points d'accès simultanés ne sera pas possible.</p>
+                    </div>
+                    ` : ''}
+                `;
+                
+                document.getElementById('save-button').style.display = 'block';
             } catch (error) {
                 showToast('Erreur lors de la vérification de l\'interface', 'error');
                 console.error('Erreur:', error);
@@ -360,6 +420,13 @@
             }
 
             try {
+                // Vérifier d'abord si l'interface est compatible
+                const checkResponse = await fetch(`/api/check_interface/${selectedInterface}`, {
+                    method: 'POST'
+                });
+                const checkData = await checkResponse.json();
+
+                // Sauvegarder la configuration
                 const response = await fetch('/api/save_config', {
                     method: 'POST',
                     headers: {
@@ -367,7 +434,7 @@
                     },
                     body: JSON.stringify({
                         interface: selectedInterface,
-                        monitor_supported: true // À adapter selon les résultats du scan
+                        monitor_supported: checkData.supported
                     })
                 });
                 

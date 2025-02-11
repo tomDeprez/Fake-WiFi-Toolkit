@@ -225,7 +225,10 @@ async def websocket_handler(websocket):
 # Routes Flask
 @app.route('/')
 def index():
-    return render_template('index.html', scripts=SCRIPTS, ws_port=8765)
+    config = load_config()
+    if not config:
+        return redirect(url_for('setup'))
+    return render_template('index.html', scripts=SCRIPTS, ws_port=8765, config=config)
 
 @app.route('/setup')
 def setup():
@@ -274,16 +277,36 @@ def check_monitor_support(interface):
         iw_list_output = subprocess.check_output(['iw', 'list'], stderr=subprocess.STDOUT).decode()
         supports_monitor = "monitor" in iw_list_output.lower()
 
+        # Vérifie le support des interfaces virtuelles
+        supports_virtual = False
+        try:
+            # Vérifie si la carte supporte la création d'interfaces virtuelles
+            iw_info = subprocess.check_output(['iw', interface, 'info'], stderr=subprocess.STDOUT).decode()
+            # Recherche des indications de support multi-interface
+            supports_virtual = any(indicator in iw_info.lower() for indicator in [
+                "valid interface combinations",
+                "simultaneous",
+                "combination",
+                "#{ managed } <= 1, #{ AP, P2P-client, P2P-GO } <= 1",
+            ])
+        except:
+            pass
+
         # Vérifie le mode actuel
         iw_info_output = subprocess.check_output(['iw', interface, 'info'], stderr=subprocess.STDOUT).decode()
         is_monitor_mode = 'type monitor' in iw_info_output
 
         return {
             'supported': supports_monitor,
-            'current_mode': 'monitor' if is_monitor_mode else 'managed'
+            'current_mode': 'monitor' if is_monitor_mode else 'managed',
+            'virtual_support': supports_virtual
         }
     except subprocess.CalledProcessError:
-        return {'supported': False, 'current_mode': 'unknown'}
+        return {
+            'supported': False,
+            'current_mode': 'unknown',
+            'virtual_support': False
+        }
 
 @app.route('/api/check_interface/<interface>', methods=['POST'])
 def check_interface(interface):
@@ -295,7 +318,8 @@ def save_interface_config():
     data = request.json
     config = {
         'wifi_interface': data['interface'],
-        'monitor_supported': data['monitor_supported']
+        'monitor_supported': data['monitor_supported'],
+        'virtual_support': data.get('virtual_support', False)
     }
     save_config(config)
     return jsonify({'status': 'success'})
