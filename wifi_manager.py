@@ -207,44 +207,71 @@ class ScriptProcess:
                     
                     # Vérification du contenu avant la copie
                     await self.send_message('info', "Préparation de l'environnement...")
-                    
-                    # Créer la configuration
                     config = {
                         "wifi_interface": interface_name,
                         "monitor_supported": monitor_supported,
                         "virtual_support": True
                     }
-                    
-                    print(f"Configuration à créer: {json.dumps(config, indent=4)}")
-                    
-                    # Écrire la configuration dans le même dossier que le script
-                    config_cmd = f"""docker exec {container_name} sh -c '
-                        cd /root &&
-                        echo \'{json.dumps(config)}\' > config.json &&
-                        ls -la config.json'
-                    """
-                    subprocess.run(config_cmd, shell=True, check=True)
+                    config_json = json.dumps(config)
+                    escaped_config = config_json.replace("'", "'\\''")
+                    config_cmd = f"docker exec {container_name} sh -c \"cd /root && echo '{escaped_config}' > config.json && chown root:root config.json && chmod 644 config.json && cat config.json\""
+
+                    try:
+                        result = subprocess.run(config_cmd, shell=True, capture_output=True, text=True, check=True)
+                        print("Configuration créée:")
+                        print(result.stdout)
+
+                        if not result.stdout.strip():
+                            raise Exception("Le fichier de configuration est vide")
+
+                    except subprocess.CalledProcessError as e:
+                        print(f"Erreur lors de la création de la configuration: {e.stderr}")
+                        await self.send_message('error', "Erreur lors de la création de la configuration")
+                        return False
                     
                     # Copie du script
                     await self.send_message('info', "Copie du script...")
                     copy_cmd = f"docker cp {script_path} {container_name}:/root/{script_name}"
                     subprocess.run(copy_cmd, shell=True, check=True)
-                    
+
                     # Permissions d'exécution
                     chmod_cmd = f"docker exec {container_name} chmod +x /root/{script_name}"
                     subprocess.run(chmod_cmd, shell=True, check=True)
 
                     # Vérification de l'environnement
-                    verify_cmd = f"""docker exec {container_name} sh -c '
-                        echo "=== Contenu du répertoire de travail ===" &&
-                        pwd &&
-                        ls -la /root &&
-                        echo "=== Contenu du fichier config.json ===" &&
-                        cat /root/config.json'
-                    """
-                    verify_result = subprocess.run(verify_cmd, shell=True, capture_output=True, text=True)
-                    print("=== Vérification de l'environnement ===")
-                    print(verify_result.stdout)
+                    verify_cmd = (
+                        f'docker exec {container_name} sh -c "'
+                        f'echo \\"=== Vérification complète de l\'environnement ===\\" && '
+                        f'echo \\"=== Contenu du répertoire racine ===\\" && '
+                        f'ls -la / && '
+                        f'echo \\"=== Contenu du répertoire de travail ===\\" && '
+                        f'cd /root && pwd && ls -la && '
+                        f'echo \\"=== Test de lecture du fichier config.json ===\\" && '
+                        f'if [ -f config.json ]; then '
+                        f'echo \\"Le fichier existe:\\" && cat config.json; '
+                        f'else '
+                        f'echo \\"Le fichier n\'existe pas!\\"; '
+                        f'fi"'
+                    )
+
+                    try:
+                        verify_result = subprocess.run(
+                            verify_cmd, 
+                            shell=True, 
+                            capture_output=True, 
+                            text=True, 
+                            check=True  # Ceci lèvera une exception si la commande échoue
+                        )
+                        print("=== Résultat de la vérification ===")
+                        print(verify_result.stdout)
+                        if verify_result.stderr:
+                            print("Erreurs détectées:")
+                            print(verify_result.stderr)
+                            
+                    except subprocess.CalledProcessError as e:
+                        print(f"Erreur lors de la vérification: {e.stderr}")
+                        await self.send_message('error', "Erreur lors de la vérification de l'environnement")
+                        return False
 
                     # Exécution du script dans /root
                     await self.send_message('info', "Exécution du script...")
@@ -537,7 +564,7 @@ def check_docker_support():
             docker_check = subprocess.run(['docker', 'info'], 
                                         capture_output=True, 
                                         text=True)
-            if docker_check.returncode != 0:
+            if (docker_check.returncode != 0):
                 docker_check = subprocess.run(['sudo', 'docker', 'info'], 
                                             capture_output=True, 
                                             text=True)
