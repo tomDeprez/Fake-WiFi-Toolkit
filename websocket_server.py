@@ -24,7 +24,6 @@ async def handle_script(websocket, script_path):
             stderr=subprocess.PIPE,
             stdin=subprocess.PIPE
         )
-        
         running_processes[script_path] = process
 
         while True:
@@ -46,7 +45,9 @@ async def handle_script(websocket, script_path):
         del running_processes[script_path]
         
     except Exception as e:
-        await log_message(websocket, f"Erreur: {str(e)}", "error")
+            await log_message(websocket, f"Erreur: {str(e)}", "error")
+            if script_path in running_processes:
+                del running_processes[script_path]
 
 async def handle_connection(websocket, path):
     try:

@@ -129,197 +129,81 @@ class ScriptProcess:
         try:
             script_path = os.path.abspath(SCRIPTS[self.script_id]['script'])
             if not os.path.exists(script_path):
-                await self.send_message('error', f"Script introuvable: {script_path}")
+                await self.send_message('error', f"Script introuvable sur l'hôte: {script_path}")
                 return False
-
+    
             script_name = os.path.basename(script_path)
-            print(f"Chemin du script: {script_path}")
-            print(f"Nom du script: {script_name}")
-
-            if self.interface:
+    
+            if self.interface:  # Exécution dans un conteneur Docker
                 container_name = f"virtual_interface_{self.interface}"
                 
-                # Installation des dépendances avec les bons noms de paquets pour Alpine
-                await self.send_message('info', "Installation des dépendances...")
-                print("Installation des paquets dans le conteneur...")
-                
-                # Mise à jour des dépôts
-                update_cmd = f"docker exec {container_name} apk update"
-                try:
-                    update_result = subprocess.run(update_cmd, shell=True, capture_output=True, text=True)
-                    print(f"Résultat mise à jour: {update_result.stdout}")
-                except subprocess.CalledProcessError as e:
-                    print(f"Erreur mise à jour: {e.stderr}")
-                
-                # Installation des paquets un par un pour mieux identifier les erreurs
-                packages = [
-                    "sudo",
-                    "bash",
-                    "wireless-tools",
-                    "iw",
-                    "hostapd",
-                    "dnsmasq",
-                    "iptables",
-                    "tcpdump",
-                    "iproute2",  # remplace ip-tools
-                    "net-tools"
-                ]
-                
-                for package in packages:
-                    await self.send_message('info', f"Installation de {package}...")
-                    install_cmd = f"docker exec {container_name} apk add --no-cache {package}"
-                    try:
-                        result = subprocess.run(install_cmd, shell=True, capture_output=True, text=True)
-                        print(f"Installation de {package}: {result.stdout}")
-                        if result.stderr:
-                            print(f"Erreur pour {package}: {result.stderr}")
-                    except subprocess.CalledProcessError as e:
-                        await self.send_message('error', f"Erreur lors de l'installation de {package}: {str(e)}")
-                        print(f"Erreur détaillée pour {package}: {e.stderr}")
-                        continue
-
-                # Détection de l'interface réseau avec plus de logs
-                await self.send_message('info', "Détection de l'interface réseau...")
-                
-                try:
-                    # Obtenir juste le nom de base de l'interface
-                    iface_cmd = f"docker exec {container_name} sh -c \"ip -br link | grep -v lo | head -n1 | cut -d'@' -f1 | awk '{{print $1}}'\""
-                    iface_result = subprocess.run(iface_cmd, shell=True, capture_output=True, text=True, check=True)
-                    interface_name = iface_result.stdout.strip()
-                    print(f"Interface détectée: '{interface_name}'")
-                    
-                    if not interface_name:
-                        # Méthode alternative
-                        backup_cmd = f"docker exec {container_name} sh -c \"ls /sys/class/net | grep -v lo | head -n1\""
-                        backup_result = subprocess.run(backup_cmd, shell=True, capture_output=True, text=True)
-                        interface_name = backup_result.stdout.strip()
-                        print(f"Interface détectée (méthode alternative): '{interface_name}'")
-
-                    if not interface_name:
-                        await self.send_message('error', "Impossible de détecter l'interface réseau")
-                        return False
-                    
-                    # Vérifier le support du mode moniteur
-                    monitor_cmd = f"docker exec {container_name} iw dev {interface_name} info"
-                    monitor_result = subprocess.run(monitor_cmd, shell=True, capture_output=True, text=True)
-                    monitor_supported = "Supported interface modes" in monitor_result.stdout and "monitor" in monitor_result.stdout
-                    print(f"Support du mode moniteur: {monitor_supported}")
-                    
-                    # Vérification du contenu avant la copie
-                    await self.send_message('info', "Préparation de l'environnement...")
-                    config = {
-                        "wifi_interface": interface_name,
-                        "monitor_supported": monitor_supported,
-                        "virtual_support": True
-                    }
-                    config_json = json.dumps(config)
-                    escaped_config = config_json.replace("'", "'\\''")
-                    config_cmd = f"docker exec {container_name} sh -c \"cd /root && echo '{escaped_config}' > config.json && chown root:root config.json && chmod 644 config.json && cat config.json\""
-
-                    try:
-                        result = subprocess.run(config_cmd, shell=True, capture_output=True, text=True, check=True)
-                        print("Configuration créée:")
-                        print(result.stdout)
-
-                        if not result.stdout.strip():
-                            raise Exception("Le fichier de configuration est vide")
-
-                    except subprocess.CalledProcessError as e:
-                        print(f"Erreur lors de la création de la configuration: {e.stderr}")
-                        await self.send_message('error', "Erreur lors de la création de la configuration")
-                        return False
-                    
-                    # Copie du script
-                    await self.send_message('info', "Copie du script...")
-                    copy_cmd = f"docker cp {script_path} {container_name}:/root/{script_name}"
-                    subprocess.run(copy_cmd, shell=True, check=True)
-
-                    # Permissions d'exécution
-                    chmod_cmd = f"docker exec {container_name} chmod +x /root/{script_name}"
-                    subprocess.run(chmod_cmd, shell=True, check=True)
-
-                    # Vérification de l'environnement
-                    verify_cmd = (
-                        f'docker exec {container_name} sh -c "'
-                        f'echo \\"=== Vérification complète de l\'environnement ===\\" && '
-                        f'echo \\"=== Contenu du répertoire racine ===\\" && '
-                        f'ls -la / && '
-                        f'echo \\"=== Contenu du répertoire de travail ===\\" && '
-                        f'cd /root && pwd && ls -la && '
-                        f'echo \\"=== Test de lecture du fichier config.json ===\\" && '
-                        f'if [ -f config.json ]; then '
-                        f'echo \\"Le fichier existe:\\" && cat config.json; '
-                        f'else '
-                        f'echo \\"Le fichier n\'existe pas!\\"; '
-                        f'fi"'
-                    )
-
-                    try:
-                        verify_result = subprocess.run(
-                            verify_cmd, 
-                            shell=True, 
-                            capture_output=True, 
-                            text=True, 
-                            check=True  # Ceci lèvera une exception si la commande échoue
-                        )
-                        print("=== Résultat de la vérification ===")
-                        print(verify_result.stdout)
-                        if verify_result.stderr:
-                            print("Erreurs détectées:")
-                            print(verify_result.stderr)
-                            
-                    except subprocess.CalledProcessError as e:
-                        print(f"Erreur lors de la vérification: {e.stderr}")
-                        await self.send_message('error', "Erreur lors de la vérification de l'environnement")
-                        return False
-
-                    # Exécution du script dans /root
-                    await self.send_message('info', "Exécution du script...")
-                    cmd = f"docker exec -w /root {container_name} bash ./{script_name}"
-                    print(f"Commande d'exécution: {cmd}")
-
-                    self.process = pexpect.spawn(cmd, encoding='utf-8')
-                    
-                    if not self.interface:
-                        index = await self.expect_async(['[sudo]', pexpect.EOF, pexpect.TIMEOUT])
-                        if index == 0:
-                            self.process.sendline(sudo_password)
-                        elif index < 0:
-                            await self.send_message('error', "Timeout ou erreur lors de l'attente du prompt sudo")
-                            return False
-                
-                    self.status = 'running'
-                    asyncio.create_task(self.read_output())
-                    return True
-
-                except subprocess.CalledProcessError as e:
-                    print(f"Erreur détaillée: {e.stderr if e.stderr else e}")
-                    await self.send_message('error', f"Erreur lors de la configuration réseau: {str(e)}")
+                await self.send_message('info', "Préparation du conteneur avec accès réseau physique...")
+    
+                # Copie du script
+                copy_cmd = f"docker cp {script_path} {container_name}:/root/{script_name}"
+                copy_result = subprocess.run(copy_cmd, shell=True, capture_output=True, text=True)
+                if copy_result.returncode != 0:
+                    await self.send_message('error', f"Échec de la copie du script dans le conteneur: {copy_result.stderr}")
                     return False
-
-                # Configuration de sudo
-                setup_sudo_cmd = f"""docker exec {container_name} sh -c 'echo "root ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/root'"""
-                subprocess.run(setup_sudo_cmd, shell=True, check=True)
-                
-            else:
-                cmd = f"sudo -S {script_path}"
-
-            self.process = pexpect.spawn(cmd, encoding='utf-8')
-            
-            if not self.interface:
+                await self.send_message('info', f"Script {script_name} copié dans {container_name}:/root/")
+    
+                # Vérification de la présence du script dans le conteneur
+                check_cmd = f"docker exec {container_name} ls /root/{script_name}"
+                check_result = subprocess.run(check_cmd, shell=True, capture_output=True, text=True)
+                if check_result.returncode != 0:
+                    await self.send_message('error', f"Le script {script_name} n'est pas présent dans /root/: {check_result.stderr}")
+                    return False
+                await self.send_message('info', "Vérification réussie : script présent dans le conteneur")
+    
+                # Permissions
+                chmod_cmd = f"docker exec {container_name} chmod +x /root/{script_name}"
+                chmod_result = subprocess.run(chmod_cmd, shell=True, capture_output=True, text=True)
+                if chmod_result.returncode != 0:
+                    await self.send_message('error', f"Échec de la modification des permissions: {chmod_result.stderr}")
+                    return False
+    
+                # Lecture de config.json de l'hôte pour obtenir l'interface physique
+                with open(CONFIG_FILE, 'r') as f:
+                    config = json.load(f)
+                wifi_interface = config.get('wifi_interface', 'unknown')
+    
+                # Injection de config.json dans le conteneur
+                config_data = json.dumps({
+                    "wifi_interface": wifi_interface,
+                    "monitor_supported": True,
+                    "virtual_support": True
+                })
+                config_cmd = f"docker exec {container_name} sh -c 'echo \"{config_data}\" > /root/config.json'"
+                config_result = subprocess.run(config_cmd, shell=True, capture_output=True, text=True)
+                if config_result.returncode != 0:
+                    await self.send_message('error', f"Échec de l'injection de config.json: {config_result.stderr}")
+                    return False
+    
+                # Exécution du script
+                cmd = f"docker exec -w /root {container_name} sh -c 'sudo -S ./{script_name}'"
+                await self.send_message('info', f"Exécution de la commande: {cmd}")
+                self.process = pexpect.spawn(cmd, encoding='utf-8')
+    
                 index = await self.expect_async(['[sudo]', pexpect.EOF, pexpect.TIMEOUT])
                 if index == 0:
                     self.process.sendline(sudo_password)
                 elif index < 0:
                     await self.send_message('error', "Timeout ou erreur lors de l'attente du prompt sudo")
                     return False
-            
+            else:
+                cmd = f"sudo -S {script_path}"
+                self.process = pexpect.spawn(cmd, encoding='utf-8')
+                index = await self.expect_async(['[sudo]', pexpect.EOF, pexpect.TIMEOUT])
+                if index == 0:
+                    self.process.sendline(sudo_password)
+                elif index < 0:
+                    await self.send_message('error', "Timeout ou erreur lors de l'attente du prompt sudo")
+                    return False
+    
             self.status = 'running'
             asyncio.create_task(self.read_output())
             return True
-
         except Exception as e:
-            print(f"Erreur lors du démarrage: {e}")
             await self.send_message('error', f"Erreur de démarrage: {str(e)}")
             return False
 
@@ -359,21 +243,16 @@ class ScriptProcess:
 
     async def verify_sudo(self, password):
         try:
-            # Utilisation de subprocess au lieu de pexpect pour la vérification
             process = await asyncio.create_subprocess_exec(
-                'sudo', '-S', 'true',
+                'sudo', '-S', '-n', 'true',
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
-            
-            # Envoi du mot de passe
-            stdout, stderr = await process.communicate(input=f"{password}\n".encode())
-            
-            # Vérification du code de retour
-            return process.returncode == 0
+            _, stderr = await process.communicate(input=f"{password}\n".encode())
+            return process.returncode == 0 and not stderr.decode().strip()
         except Exception as e:
-            print(f"Erreur verification sudo: {str(e)}")
+            print(f"Erreur vérification sudo: {str(e)}")
             return False
 
 # Gestionnaire de connexion WebSocket
@@ -700,25 +579,24 @@ def create_docker_interface(interface_name):
 
 def load_virtual_interfaces():
     try:
-        if os.path.exists(VIRTUAL_INTERFACES_FILE):
-            with open(VIRTUAL_INTERFACES_FILE, 'r') as f:
-                return json.load(f)
-        return []
-    except Exception as e:
-        print(f"Error loading virtual interfaces: {e}")
+        with open(VIRTUAL_INTERFACES_FILE, 'r') as f:
+            return json.load(f)
+    except FileNotFoundError:
         return []
 
 def save_virtual_interfaces(interfaces):
-    try:
-        with open(VIRTUAL_INTERFACES_FILE, 'w') as f:
-            json.dump(interfaces, f)
-    except Exception as e:
-        print(f"Error saving virtual interfaces: {e}")
+    with open(VIRTUAL_INTERFACES_FILE, 'w') as f:
+        json.dump(interfaces, f)
 
+# Dans create_virtual_interface (route API)
 @app.route('/api/create_virtual_interface', methods=['POST'])
 def create_virtual_interface():
-    data = request.json
+    data = request.get_json()
     interface_name = data.get('name')
+    subprocess.run(['bash', 'docker_interface.sh', 'create', interface_name], check=True)
+    interfaces = load_virtual_interfaces()
+    interfaces.append(interface_name)
+    save_virtual_interfaces(interfaces)
     
     if not interface_name:
         return jsonify({'error': 'Nom d\'interface requis'}), 400
